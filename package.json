@@ -11,6 +11,8 @@
     "start": "node athena-node.mjs",
     "check": "node tests/check.mjs",
     "test": "node --test tests",
+    "test:computer": "node --test tests/computer-use.test.mjs",
+    "test:lifecycle": "node --test tests/lifecycle.test.mjs",
     "package": "node tools/package.mjs",
     "package:portable": "node tools/package.mjs --no-installer"
   }

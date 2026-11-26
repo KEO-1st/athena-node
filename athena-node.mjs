@@ -25,6 +25,7 @@ import { audioDeviceBelongsToSource, classifyAudioDevices, pickAudioDevice } fro
 import { asUrl, programCandidates, resolveProgramTarget } from "./programs.mjs";
 import { audioInventory, cpuUtilization, diskInventory, displayInventory, installedApps, memoryInfo, memoryInventory, osInfo } from "./inventory.mjs";
 import { installDependency, portableToolsDir } from "./dependencies.mjs";
+import { BrowserController } from "./lib/browser.mjs";
 import {
   HttpError,
   applyCors,
@@ -66,6 +67,9 @@ const DEFAULTS = {
   allowShell: false,
   allowShutdown: false,
   allowInput: false,
+  /* Screen viewing was already available to a paired Hub in 0.2/0.3. Keeping
+     it explicit preserves that contract while making it switchable. */
+  allowScreen: true,
   screenMaxWidth: 1280,
   comfyDir: "",
   comfyPort: 8188,
@@ -89,6 +93,62 @@ function writeJsonSync(file, value) {
 }
 
 fs.mkdirSync(NODE_DIR, { recursive: true });
+
+/* Exactly one agent per data directory. The desktop launcher owns the normal
+   lifecycle, but this lock also protects the portable agent when two people
+   double-click it at once. A stale lock is checked by pid, not age. */
+const INSTANCE_FILE = path.join(NODE_DIR, "agent.lock");
+let ownsInstanceLock = false;
+function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function acquireInstanceLock() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = fs.openSync(INSTANCE_FILE, "wx");
+      fs.writeFileSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      ownsInstanceLock = true;
+      return;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let current = 0;
+      try {
+        current = Number(fs.readFileSync(INSTANCE_FILE, "utf8").trim());
+      } catch {
+        /* vanished; retry the exclusive create */
+      }
+      if (processAlive(current)) {
+        console.error(`\n  ATHENA Node is already running on this PC (pid ${current}).\n  Use the tray icon to open its panel.\n`);
+        process.exit(1);
+      }
+      try {
+        fs.rmSync(INSTANCE_FILE, { force: true });
+      } catch {
+        /* retry once below */
+      }
+    }
+  }
+  console.error("\n  ATHENA Node could not create its single-instance lock. Check the data folder.\n");
+  process.exit(1);
+}
+function releaseInstanceLock() {
+  if (!ownsInstanceLock) return;
+  ownsInstanceLock = false;
+  try {
+    fs.rmSync(INSTANCE_FILE, { force: true });
+  } catch {
+    /* best effort */
+  }
+}
+acquireInstanceLock();
+
 const config = { ...DEFAULTS, ...readJsonSync(CONFIG_FILE, {}) };
 if (!config.code) config.code = makeCode();
 writeJsonSync(CONFIG_FILE, config);
@@ -120,6 +180,8 @@ function noteLinkFailure(ip) {
   if (!entry || now - entry.at > LINK_WINDOW_MS) linkFailures.set(ip, { count: 1, at: now });
   else entry.count += 1;
 }
+
+const browser = new BrowserController({ dataDir: NODE_DIR, log });
 
 const state = {
   id: "",
@@ -830,6 +892,137 @@ function fraction(value) {
   return Math.min(1, Math.max(0, number));
 }
 
+function requireWindowsControl(permission = "allowInput") {
+  if (!hostAvailable()) throw new Error("Computer control needs Windows on this node.");
+  if (!config[permission]) {
+    throw new Error(
+      permission === "allowScreen"
+        ? "Screen and window inspection is switched off on this node (PERMISSIONS → Allow screen inspection)."
+        : "Remote control is switched off on this node (PERMISSIONS → Allow keyboard and mouse input)."
+    );
+  }
+}
+
+async function readWindows() {
+  const reply = await hostCall("input", "windows", {}, 12_000);
+  if (!reply.ok) throw new Error(reply.error || "Windows did not report its windows.");
+  const windows = Array.isArray(reply.windows) ? reply.windows : [];
+  return {
+    ok: true,
+    windows: windows
+      .map((window) => ({
+        handle: String(window.handle || ""),
+        pid: Number(window.pid) || null,
+        process: String(window.process || ""),
+        title: String(window.title || ""),
+        x: Number(window.x) || 0,
+        y: Number(window.y) || 0,
+        width: Number(window.width) || 0,
+        height: Number(window.height) || 0,
+        minimized: Boolean(window.minimized),
+        foreground: Boolean(window.foreground),
+      }))
+      .filter((window) => window.handle && window.title),
+    count: windows.length,
+    foreground: windows.find((window) => window.foreground)?.title || null,
+  };
+}
+
+async function windowList() {
+  requireWindowsControl("allowScreen");
+  return readWindows();
+}
+
+async function windowFocus(args = {}) {
+  requireWindowsControl("allowInput");
+  const handle = String(args.handle || "").trim();
+  if (!/^\d+$/.test(handle)) throw new Error("A window handle from the window list is required.");
+  const result = await hostCall("input", "focus", { handle }, 12_000);
+  if (!result.ok) throw new Error(result.error || "Windows did not focus that window.");
+  const current = await readWindows().catch(() => null);
+  const target = current?.windows.find((window) => window.handle === handle) || null;
+  return {
+    ok: true,
+    focused: true,
+    handle,
+    title: target?.title || null,
+    process: target?.process || null,
+    verifiedForeground: Boolean(target?.foreground),
+  };
+}
+
+async function windowClose(args = {}) {
+  requireWindowsControl("allowInput");
+  const handle = String(args.handle || "").trim();
+  if (!/^\d+$/.test(handle)) throw new Error("A window handle from the window list is required.");
+  const before = await readWindows().catch(() => null);
+  const target = before?.windows.find((window) => window.handle === handle) || null;
+  const result = await hostCall("input", "close", { handle }, 12_000);
+  if (!result.ok) throw new Error(result.error || "Windows did not close that window.");
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  const after = await readWindows().catch(() => null);
+  const stillOpen = after?.windows.some((window) => window.handle === handle) ?? null;
+  return {
+    ok: stillOpen !== true,
+    closeRequested: true,
+    closed: stillOpen === false,
+    stillOpen,
+    handle,
+    title: target?.title || null,
+    process: target?.process || null,
+    note: stillOpen ? "The app asked to stay open, for example to save work." : "The window is gone.",
+  };
+}
+
+const BROWSER_PROCESSES = { chrome: "chrome", msedge: "msedge", brave: "brave" };
+
+async function focusBrowser(page = null) {
+  const wanted = page?.title ? String(page.title).toLowerCase() : "";
+  let hostName = "";
+  try {
+    hostName = page?.url ? new URL(page.url).hostname : "";
+  } catch {
+    /* about:blank */
+  }
+  const host = browser.browser?.id ? BROWSER_PROCESSES[browser.browser.id] : null;
+  try {
+    /* A cold Chrome launch can finish loading the page before Windows has
+       completed its top-level window. Poll instead of reporting a false
+       failure, but never focus an unrelated Chrome window. */
+    let target = null;
+    for (let attempt = 0; attempt < 14 && !target; attempt += 1) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 650));
+      const list = await readWindows();
+      const candidates = list.windows.filter((window) => (host ? window.process.toLowerCase().includes(host) : Boolean(window.process)));
+      target =
+        (wanted && candidates.find((window) => window.title.toLowerCase().includes(wanted))) ||
+        (hostName && candidates.find((window) => window.title.toLowerCase().includes(hostName.toLowerCase()))) ||
+        null;
+    }
+    if (!target) {
+      return { focused: false, error: `The page is open, but no ${browser.browser?.name || "browser"} window titled "${page?.title || hostName || "the page"}" became visible to Windows.` };
+    }
+    const focused = await windowFocus({ handle: target.handle });
+    return { focused: true, title: focused.title, handle: focused.handle, verifiedForeground: focused.verifiedForeground };
+  } catch (error) {
+    return { focused: false, error: String(error?.message || error) };
+  }
+}
+
+async function browserAction(args = {}) {
+  const op = String(args.op || "status").toLowerCase();
+  if (op !== "status" && !config.allowInput) {
+    throw new Error("Browser control is switched off on this node (PERMISSIONS → Allow keyboard and mouse input).");
+  }
+  if (op !== "status") requireWindowsControl("allowInput");
+  const result = await browser.action(args);
+  if (["open", "navigate", "search", "click", "type", "key", "back"].includes(op)) {
+    const foreground = await focusBrowser(result.page || result);
+    return { ...result, foreground };
+  }
+  return result;
+}
+
 async function screenInput(payload = {}) {
   if (!hostAvailable()) throw new Error("Remote control needs Windows on this node.");
   if (!config.allowInput) throw new Error("Remote control is switched off on this node (config.json → allowInput, or the node window → SETTINGS).");
@@ -1443,8 +1636,12 @@ async function status() {
       shutdown: config.allowShutdown,
       comfy: Boolean(comfyLayout()),
       ollama: ollama.ok,
-      screen: hostAvailable(),
+      screen: hostAvailable() && config.allowScreen,
+      screenAvailable: hostAvailable(),
       input: hostAvailable() && config.allowInput,
+      windows: hostAvailable() && config.allowScreen,
+      browser: hostAvailable() && browser.browsers().length > 0,
+      browserControl: hostAvailable() && config.allowInput && browser.browsers().length > 0,
       pairCodeRequired: !config.pairOpen,
       audio: audioAvailable(),
       apps: APP_SPECS.map((spec) => spec.id),
@@ -1586,10 +1783,13 @@ const server = http.createServer(async (req, res) => {
 
     if (route === "/api/screen/info") {
       if (!tokenOk(req)) return send(403, { error: "Bad token." });
+      if (!config.allowScreen) return send(403, { error: "Screen inspection is switched off on this node (PERMISSIONS → Allow screen inspection)." });
       return send(200, {
         ok: true,
         windows: IS_WIN,
+        screenPermission: config.allowScreen,
         input: hostAvailable() && config.allowInput,
+        browser: browser.browsers().length > 0,
         maxWidth: config.screenMaxWidth,
         fps: measuredFps(),
         targetFps: screenTargetFps,
@@ -1602,6 +1802,7 @@ const server = http.createServer(async (req, res) => {
        watching; the node keeps capturing a few frames a second in between. */
     if (route === "/api/screen") {
       if (!tokenOk(req)) return send(403, { error: "Bad token." });
+      if (!config.allowScreen) return send(403, { error: "Screen inspection is switched off on this node (PERMISSIONS → Allow screen inspection)." });
       if (!hostAvailable()) return send(400, { error: "Screen view needs Windows on this node." });
       try {
         const frame = await screenFrame(url.searchParams.get("fps"), url.searchParams.get("width"));
@@ -1742,6 +1943,19 @@ const server = http.createServer(async (req, res) => {
           return send(200, await appStart(String(args.app || "")));
         case "app-stop":
           return send(200, await appStop(String(args.app || "")));
+        case "windows":
+        case "window-focus":
+        case "window-close":
+        case "browser": {
+          try {
+            const result =
+              op === "windows" ? await windowList() : op === "window-focus" ? await windowFocus(args) : op === "window-close" ? await windowClose(args) : await browserAction(args);
+            return send(200, result);
+          } catch (error) {
+            const message = String(error?.message || error);
+            return send(/switched off|disabled/i.test(message) ? 403 : 400, { error: message });
+          }
+        }
         case "open":
         case "launch":
         case "start-app":
@@ -1772,7 +1986,7 @@ const server = http.createServer(async (req, res) => {
           /* A hub may tune paths and display details, but it may not widen this
              machine's permissions. That is a decision for the person at the
              node's own panel. */
-          const protectedKeys = ["allowShell", "allowShutdown", "allowInput", "pairOpen", "code", "port"];
+          const protectedKeys = ["allowShell", "allowShutdown", "allowInput", "allowScreen", "pairOpen", "code", "port"];
           const attempted = protectedKeys.filter((key) => key in args && args[key] !== config[key]);
           if (attempted.length && !localOk(req)) {
             return send(403, { error: `Changing ${attempted.join(", ")} needs the node's own panel.` });
@@ -1943,6 +2157,19 @@ udp.on("message", async (message, rinfo) => {
 
 function openWindow() {
   const url = `http://127.0.0.1:${config.port}/`;
+  /* The desktop launcher is the one panel owner. Ask it through its named
+     event instead of starting another browser window the launcher does not
+     know about. A direct agent run without the launcher may still open one. */
+  const launcher = String(process.env.ATHENA_LAUNCHER || "");
+  if (launcher && fs.existsSync(launcher)) {
+    try {
+      spawn(launcher, ["--open-panel"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+      return url;
+    } catch (error) {
+      log("launcher panel request failed: " + error.message);
+    }
+  }
+  if (process.env.ATHENA_LAUNCHED_BY === "desktop") return url;
   if (!IS_WIN) {
     try {
       spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
@@ -1968,12 +2195,16 @@ function openWindow() {
 
 function requestRestart(source = "local") {
   log(`restart requested by ${source}`);
-  setTimeout(() => process.exit(RESTART_EXIT_CODE), 250);
+  setTimeout(() => {
+    browser.shutdown().catch(() => undefined).finally(() => process.exit(RESTART_EXIT_CODE));
+  }, 250);
 }
 
 function requestQuit(source = "local") {
   log(`stop requested by ${source}`);
-  setTimeout(() => process.exit(QUIT_EXIT_CODE), 250);
+  setTimeout(() => {
+    browser.shutdown().catch(() => undefined).finally(() => process.exit(QUIT_EXIT_CODE));
+  }, 250);
 }
 
 server.on("error", (error) => {
@@ -2011,7 +2242,9 @@ server.listen(config.port, "0.0.0.0", () => {
       /* some stacks refuse */
     }
   });
-  if (config.openWindow) openWindow();
+  /* The launcher opens the panel after /api/hello is healthy. Opening it here
+     as well was the duplicate-window bug. */
+  if (config.openWindow && process.env.ATHENA_LAUNCHED_BY !== "desktop") openWindow();
   if (config.autoStartComfy) startComfy().catch((error) => log("auto-start failed: " + error.message));
 });
 
@@ -2024,6 +2257,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       /* closed */
     }
     killHosts();
+    releaseInstanceLock();
     process.exit(0);
   });
 }
@@ -2046,4 +2280,7 @@ function killHosts() {
   audioChildren.clear();
 }
 
-process.on("exit", killHosts);
+process.on("exit", () => {
+  killHosts();
+  releaseInstanceLock();
+});

@@ -3,6 +3,7 @@ dist/
 data/
 tools/.downloads/
 *.log
+screen-frame.jpg
 .env
 .env.*
 !.env.example

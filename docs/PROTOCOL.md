@@ -43,6 +43,19 @@ All authenticated routes take `x-athena-token: <paired token>`.
 older Node without a route change. Adding a new operation is additive; changing
 the meaning of an existing one requires a protocol bump.
 
+0.3.0 advertises the additive features `windows`, `browser` and `evidence`.
+
+- `windows` returns visible top-level windows: `{ handle, pid, process, title,
+  x, y, width, height, minimized, foreground }`. Requires `allowScreen`.
+- `window-focus` / `window-close` take `{ handle }` from that list. Requires
+  `allowInput`.
+- `browser` takes `{ op, ... }` with `status | open | navigate | search |
+  inspect | click | type | key | back`. It uses a controlled Chromium profile
+  and returns the live page title, URL, text, links or fields. Requires
+  `allowInput`. A failed page operation is an error, never a success shape.
+- `GET /api/screen` is the evidence source after a computer action. The Hub
+  attaches that JPEG to the conversation; the Node does not invent evidence.
+
 ### Status shape (protocol 1)
 
 Existing fields (`cpu`, `cores`, `memory`, `gpu`, `services`, `tasks`,

@@ -374,12 +374,16 @@
         <div class="section-head"><h2>Remote capabilities</h2><p class="micro dim">LOCAL DECISION ONLY</p></div>
         <p class="warning">These switches are authoritative on this PC. A Hub request cannot widen them. Changes apply immediately to the running agent.</p>
         <label class="permission">
+          <input type="checkbox" id="f-screen" />
+          <span><b>Allow screen and window inspection</b><p>Lets an authorized controller see this screen, read monitor details and list application windows. It does not allow clicking or typing.</p></span>
+        </label>
+        <label class="permission">
           <input type="checkbox" id="f-shell" />
           <span><b>Allow shell commands</b><p>Lets the paired Hub administrator run commands, scripts and installs through this Node. This is the broadest permission; leave it off unless you trust every Hub administrator.</p></span>
         </label>
         <label class="permission">
           <input type="checkbox" id="f-input" />
-          <span><b>Allow keyboard and mouse input</b><p>Lets an authorized controller click, type and press keys on this desktop through the Hub screen viewer. Viewing the screen remains separate.</p></span>
+          <span><b>Allow keyboard, mouse and browser control</b><p>Lets an authorized controller click, type, press keys, focus or close windows and operate a controlled browser on this desktop. Screen viewing remains separate.</p></span>
         </label>
         <label class="permission">
           <input type="checkbox" id="f-shutdown" />
@@ -596,6 +600,7 @@
     $("diag-log").textContent = (s.log || "").split("\n").slice(-8).join("\n") || "No log lines yet.";
 
     if ($("f-name") && document.activeElement !== $("f-name")) $("f-name").value = s.name || "";
+    if ($("f-screen") && document.activeElement !== $("f-screen")) $("f-screen").checked = s.capabilities?.screenAvailable !== false && s.capabilities?.screen !== false;
     if ($("f-shell") && document.activeElement !== $("f-shell")) $("f-shell").checked = Boolean(s.capabilities?.shell);
     if ($("f-input") && document.activeElement !== $("f-input")) $("f-input").checked = Boolean(s.capabilities?.input);
     if ($("f-shutdown") && document.activeElement !== $("f-shutdown")) $("f-shutdown").checked = Boolean(s.capabilities?.shutdown);
@@ -652,6 +657,7 @@
       method: "POST",
       headers: await localHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({
+        allowScreen: $("f-screen").checked,
         allowShell: $("f-shell").checked,
         allowInput: $("f-input").checked,
         allowShutdown: $("f-shutdown").checked,

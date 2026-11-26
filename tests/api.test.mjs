@@ -41,6 +41,7 @@ test("authenticated Node API rejects bad tokens and disabled execution", async (
       allowShell: false,
       allowShutdown: false,
       allowInput: false,
+      allowScreen: false,
     })
   );
   fs.writeFileSync(
@@ -105,6 +106,24 @@ test("authenticated Node API rejects bad tokens and disabled execution", async (
   assert.equal(input.status, 403, "remote input must be refused when disabled");
   assert.match((await input.json()).error, /switched off|disabled/i);
 
+  const screenInfo = await fetch(`${base}/api/screen/info`, { headers: { "x-athena-token": "paired-token" } });
+  assert.equal(screenInfo.status, 403, "screen inspection must be refused when disabled");
+  assert.match((await screenInfo.json()).error, /screen inspection/i);
+
+  const browser = await fetch(`${base}/api/action`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-athena-token": "paired-token" },
+    body: JSON.stringify({ op: "browser", args: { op: "status" } }),
+  });
+  assert.equal(browser.status, 200, "browser discovery is read-only");
+  const browserControl = await fetch(`${base}/api/action`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-athena-token": "paired-token" },
+    body: JSON.stringify({ op: "browser", args: { op: "open", url: "https://example.com" } }),
+  });
+  assert.equal(browserControl.status, 403, "browser control is refused when input is disabled");
+  assert.match((await browserControl.json()).error, /browser control/i);
+
   const unknown = await fetch(`${base}/api/action`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-athena-token": "paired-token" },
@@ -145,12 +164,15 @@ test("authenticated Node API rejects bad tokens and disabled execution", async (
   const localWiden = await fetch(`${base}/api/local/config`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-athena-local": token },
-    body: JSON.stringify({ allowShell: true, allowShutdown: true, allowInput: true }),
+    body: JSON.stringify({ allowShell: true, allowShutdown: true, allowInput: true, allowScreen: true }),
   });
   assert.equal(localWiden.status, 200);
   const widened = await (await fetch(`${base}/api/local/status`, { headers: { "x-athena-local": token } })).json();
   assert.equal(widened.capabilities.shell, true);
   assert.equal(widened.capabilities.shutdown, true);
   assert.equal(widened.capabilities.input, process.platform === "win32");
+  assert.equal(widened.capabilities.screen, process.platform === "win32");
+  assert.equal(typeof widened.capabilities.browser, "boolean", "browser availability is reported explicitly");
+  assert.equal(widened.capabilities.screenAvailable, process.platform === "win32");
   assert.ok(output.includes("node up on"), `agent output was:\n${output}`);
 });

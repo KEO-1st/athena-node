@@ -9,20 +9,109 @@ Add-Type -AssemblyName System.Drawing
 
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 public class AthenaInput {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, IntPtr extra);
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint flags, UIntPtr extra);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr extra);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hwnd, out int pid);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hwnd, int index);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint attachTo, bool on);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
 
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public delegate bool EnumProc(IntPtr hwnd, IntPtr extra);
+
+  public class WindowInfo {
+    public string Handle;
+    public int Pid;
+    public string Process;
+    public string Title;
+    public int X;
+    public int Y;
+    public int Width;
+    public int Height;
+    public bool Minimized;
+    public bool Foreground;
+  }
 
   public static int[] Cursor() {
     POINT p;
     GetCursorPos(out p);
     return new int[] { p.X, p.Y };
+  }
+
+  public static List<WindowInfo> Windows() {
+    var found = new List<WindowInfo>();
+    IntPtr foreground = GetForegroundWindow();
+    EnumWindows(delegate(IntPtr hwnd, IntPtr extra) {
+      if (!IsWindowVisible(hwnd)) return true;
+      if ((GetWindowLong(hwnd, -20) & 0x80) != 0) return true; // WS_EX_TOOLWINDOW
+      var text = new StringBuilder(512);
+      GetWindowText(hwnd, text, text.Capacity);
+      string title = text.ToString().Trim();
+      if (title.Length == 0) return true;
+      int pid;
+      GetWindowThreadProcessId(hwnd, out pid);
+      if (pid <= 0) return true;
+      string name = "process";
+      try { name = Process.GetProcessById(pid).ProcessName; } catch { }
+      RECT rect;
+      GetWindowRect(hwnd, out rect);
+      found.Add(new WindowInfo {
+        Handle = hwnd.ToInt64().ToString(),
+        Pid = pid,
+        Process = name,
+        Title = title,
+        X = rect.Left,
+        Y = rect.Top,
+        Width = Math.Max(0, rect.Right - rect.Left),
+        Height = Math.Max(0, rect.Bottom - rect.Top),
+        Minimized = IsIconic(hwnd),
+        Foreground = hwnd == foreground
+      });
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+
+  public static bool Focus(long handle) {
+    IntPtr hwnd = new IntPtr(handle);
+    if (!IsWindowVisible(hwnd)) return false;
+    /* Restore a minimized window. Do not call ShowWindow on a normal window:
+       re-showing a Chromium top-level window from a background helper can
+       make it disappear from subsequent window enumeration. */
+    if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
+    /* Attaching to the foreground thread is deliberately avoided. It can
+       wedge Chromium's UI thread, after which its window is no longer
+       enumerable even though the process still runs. If Windows refuses the
+       foreground change we report it instead of pretending it worked. */
+    BringWindowToTop(hwnd);
+    SetForegroundWindow(hwnd);
+    Thread.Sleep(150);
+    return GetForegroundWindow() == hwnd;
+  }
+
+  public static bool Close(long handle) {
+    IntPtr hwnd = new IntPtr(handle);
+    if (!IsWindowVisible(hwnd)) return false;
+    return PostMessage(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero); // WM_CLOSE
   }
 }
 '@
@@ -151,6 +240,31 @@ while ($true) {
       'info' {
         $cursor = [AthenaInput]::Cursor()
         Reply @{ id = $id; ok = $true; cursorX = $cursor[0]; cursorY = $cursor[1] }
+      }
+      'windows' {
+        $list = @()
+        foreach ($window in [AthenaInput]::Windows()) {
+          $list += @{
+            handle = $window.Handle; pid = $window.Pid; process = $window.Process; title = $window.Title
+            x = $window.X; y = $window.Y; width = $window.Width; height = $window.Height
+            minimized = $window.Minimized; foreground = $window.Foreground
+          }
+        }
+        Reply @{ id = $id; ok = $true; windows = $list }
+      }
+      'focus' {
+        $handle = [long]$cmd.handle
+        if (-not $handle) { throw 'A window handle is required.' }
+        $focused = [AthenaInput]::Focus($handle)
+        if (-not $focused) { throw 'Windows did not bring that window to the foreground. It may be closing or on another desktop.' }
+        Reply @{ id = $id; ok = $true; focused = $true; handle = $handle }
+      }
+      'close' {
+        $handle = [long]$cmd.handle
+        if (-not $handle) { throw 'A window handle is required.' }
+        $closed = [AthenaInput]::Close($handle)
+        if (-not $closed) { throw 'That window could not be closed; it may already be gone.' }
+        Reply @{ id = $id; ok = $true; closed = $true; handle = $handle }
       }
       'move' {
         [AthenaInput]::SetCursorPos([int]$cmd.x, [int]$cmd.y) | Out-Null

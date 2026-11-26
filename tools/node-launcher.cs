@@ -25,7 +25,7 @@ namespace AthenaNode
         private const string OpenPanelEvent = "ATHENA.Node.OpenPanel.0_3";
 
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
             bool created;
             using (var mutex = new Mutex(true, LauncherMutex, out created))
@@ -51,6 +51,7 @@ namespace AthenaNode
         private readonly NotifyIcon tray;
         private readonly Control marshal;
         private readonly System.Windows.Forms.Timer restartTimer;
+        private readonly System.Windows.Forms.Timer stableTimer;
         private readonly EventWaitHandle openEvent;
         private readonly string root;
         private readonly string appDir;
@@ -62,6 +63,8 @@ namespace AthenaNode
         private bool quitting;
         private bool panelOpening;
         private int crashCount;
+        private int crashDelayMs = 1500;
+        private const int MaxCrashRestarts = 3;
         private int port = 47910;
 
         public LauncherContext(EventWaitHandle openEvent)
@@ -100,6 +103,16 @@ namespace AthenaNode
             {
                 restartTimer.Stop();
                 if (!quitting) StartChild();
+            };
+
+            stableTimer = new System.Windows.Forms.Timer();
+            stableTimer.Interval = 60000;
+            stableTimer.Tick += delegate
+            {
+                stableTimer.Stop();
+                crashCount = 0;
+                crashDelayMs = 1500;
+                WriteLog("node stayed healthy for 60s; crash backoff reset");
             };
 
             var signal = new Thread(delegate()
@@ -180,13 +193,15 @@ namespace AthenaNode
                 info.StandardErrorEncoding = Encoding.UTF8;
                 info.EnvironmentVariables["ATHENA_NODE_DIR"] = dataDir;
                 info.EnvironmentVariables["ATHENA_LAUNCHED_BY"] = "desktop";
+                info.EnvironmentVariables["ATHENA_LAUNCHER"] = Application.ExecutablePath;
 
                 child = new Process();
                 child.StartInfo = info;
                 child.EnableRaisingEvents = true;
                 child.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { WriteLog(e.Data); };
                 child.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) { WriteLog(e.Data); };
-                child.Exited += delegate(object sender, EventArgs e) { OnChildExit(); };
+                var startedProcess = child;
+                child.Exited += delegate(object sender, EventArgs e) { ChildExited(startedProcess); };
                 child.Start();
                 child.BeginOutputReadLine();
                 child.BeginErrorReadLine();
@@ -197,7 +212,9 @@ namespace AthenaNode
             catch (Exception error)
             {
                 WriteLog("launcher start failed: " + error);
+                child = null;
                 tray.ShowBalloonTip(6000, "ATHENA Node could not start", error.Message, ToolTipIcon.Error);
+                RecoverFromFailure("the agent could not start");
             }
         }
 
@@ -211,6 +228,7 @@ namespace AthenaNode
                     if (Healthy())
                     {
                         tray.Text = "ATHENA Node · running";
+                        stableTimer.Start();
                         try
                         {
                             if (Environment.GetEnvironmentVariable("ATHENA_NO_BROWSER") != "1")
@@ -223,10 +241,12 @@ namespace AthenaNode
                 }
                 try
                 {
-                    tray.ShowBalloonTip(6000, "ATHENA Node is not answering",
-                        "Use the tray menu to open the data folder and read launcher.log.", ToolTipIcon.Warning);
+                    tray.ShowBalloonTip(5000, "ATHENA Node is not answering",
+                        "The agent did not become healthy. It will be stopped before a bounded retry.", ToolTipIcon.Warning);
                 }
                 catch { }
+                StopChild();
+                RecoverFromFailure("the agent never answered /api/hello");
             });
             thread.IsBackground = true;
             thread.Start();
@@ -247,40 +267,57 @@ namespace AthenaNode
             catch { return false; }
         }
 
-        private void OnChildExit()
+        private void ChildExited(Process source)
         {
+            if (source != child) return;
             /* Process.Exited arrives on a worker thread. Tray and timer calls
                must move back to the WinForms thread. */
             if (marshal.InvokeRequired)
             {
-                try { marshal.BeginInvoke((Action)OnChildExit); } catch { }
+                try { marshal.BeginInvoke((Action)delegate { OnChildExit(source); }); } catch { }
                 return;
             }
+            OnChildExit(source);
+        }
+
+        private void OnChildExit(Process source)
+        {
+            if (source != child) return;
             int code = -1;
-            try { code = child.ExitCode; } catch { }
+            try { code = source.ExitCode; } catch { }
             WriteLog("node exited with code " + code);
             child = null;
+            stableTimer.Stop();
             if (quitting) return;
             if (code == 76) { Quit(); return; }
             if (code == 75)
             {
                 tray.Text = "ATHENA Node · restarting";
+                restartTimer.Interval = 800;
                 restartTimer.Start();
                 return;
             }
+            RecoverFromFailure("the agent exited with code " + code);
+        }
+
+        private void RecoverFromFailure(string reason)
+        {
+            if (quitting) return;
             crashCount++;
-            if (crashCount <= 3)
+            if (crashCount <= MaxCrashRestarts)
             {
+                crashDelayMs = Math.Min(30000, 1500 * (1 << (crashCount - 1)));
                 tray.Text = "ATHENA Node · recovering";
-                tray.ShowBalloonTip(3000, "ATHENA Node stopped",
-                    "Restarting automatically (attempt " + crashCount + " of 3).", ToolTipIcon.Warning);
+                tray.ShowBalloonTip(3500, "ATHENA Node stopped",
+                    reason + ". Restarting in " + (crashDelayMs / 1000) + "s (attempt " + crashCount + " of " + MaxCrashRestarts + ").", ToolTipIcon.Warning);
+                restartTimer.Interval = crashDelayMs;
                 restartTimer.Start();
             }
             else
             {
                 tray.Text = "ATHENA Node · stopped";
-                tray.ShowBalloonTip(6000, "ATHENA Node stopped",
-                    "It failed repeatedly. Open the data folder and read launcher.log.", ToolTipIcon.Error);
+                tray.ShowBalloonTip(8000, "ATHENA Node stopped",
+                    reason + ". It failed " + MaxCrashRestarts + " times and will not retry automatically. Open the data folder and read launcher.log, then use Restart node.", ToolTipIcon.Error);
             }
         }
 
@@ -288,23 +325,29 @@ namespace AthenaNode
         {
             if (quitting) return;
             crashCount = 0;
+            crashDelayMs = 1500;
+            stableTimer.Stop();
             StopChild();
             tray.Text = "ATHENA Node · restarting";
+            restartTimer.Interval = 500;
             restartTimer.Start();
         }
 
         private void StopChild()
         {
+            stableTimer.Stop();
+            var process = child;
+            child = null;
+            if (process == null) return;
             try
             {
-                if (child != null && !child.HasExited)
+                if (!process.HasExited)
                 {
-                    Process.Start(new ProcessStartInfo("taskkill", "/pid " + child.Id + " /t /f") { UseShellExecute = false, CreateNoWindow = true });
-                    child.WaitForExit(5000);
+                    Process.Start(new ProcessStartInfo("taskkill", "/pid " + process.Id + " /t /f") { UseShellExecute = false, CreateNoWindow = true });
+                    process.WaitForExit(5000);
                 }
             }
             catch { }
-            child = null;
         }
 
         private void OpenPanel()
@@ -313,12 +356,11 @@ namespace AthenaNode
             if (panel != null && !panel.HasExited)
             {
                 if (FocusPanel(panel)) return;
-                /* The browser process is alive but its window is hidden or
-                   minimised. Do not create a second one; tell the person where
-                   the panel is instead. */
-                tray.ShowBalloonTip(3000, "ATHENA Node panel is open",
-                    "Use the taskbar to bring the existing ATHENA Node panel forward.", ToolTipIcon.Info);
-                return;
+                /* A Chromium process can outlive its last window (background
+                   mode). It is not a panel any more, so remove that stale
+                   process before opening exactly one fresh window. */
+                WriteLog("panel process has no window; clearing stale process");
+                KillPanelTree();
             }
             if (panelOpening) return;
             panelOpening = true;
@@ -345,8 +387,7 @@ namespace AthenaNode
                         panel = Process.Start(info);
                         if (panel != null)
                         {
-                            panel.EnableRaisingEvents = true;
-                            panel.Exited += delegate { panel = null; };
+                            WatchPanel(panel);
                             WriteLog("panel opened in " + Path.GetFileName(browser));
                             return;
                         }
@@ -356,15 +397,44 @@ namespace AthenaNode
                 try
                 {
                     panel = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                    if (panel != null)
-                    {
-                        panel.EnableRaisingEvents = true;
-                        panel.Exited += delegate { panel = null; };
-                    }
+                    if (panel != null) WatchPanel(panel);
                 }
                 catch { }
             }
             finally { panelOpening = false; }
+        }
+
+        private void WatchPanel(Process process)
+        {
+            process.EnableRaisingEvents = true;
+            process.Exited += delegate
+            {
+                if (panel != process) return;
+                panel = null;
+                if (quitting) return;
+                try
+                {
+                    tray.ShowBalloonTip(5000, "ATHENA Node is still running",
+                        "The panel is closed, but the Node agent and tray icon are still active. Open the panel again from the tray.", ToolTipIcon.Info);
+                }
+                catch { }
+            };
+        }
+
+        private void KillPanelTree()
+        {
+            var process = panel;
+            panel = null;
+            if (process == null) return;
+            try
+            {
+                if (!process.HasExited)
+                {
+                    Process.Start(new ProcessStartInfo("taskkill", "/pid " + process.Id + " /t /f") { UseShellExecute = false, CreateNoWindow = true });
+                    process.WaitForExit(3000);
+                }
+            }
+            catch { }
         }
 
         private bool FocusPanel(Process process)
@@ -428,13 +498,9 @@ namespace AthenaNode
         {
             quitting = true;
             restartTimer.Stop();
+            stableTimer.Stop();
             StopChild();
-            try
-            {
-                if (panel != null && !panel.HasExited) panel.Kill();
-            }
-            catch { }
-            panel = null;
+            KillPanelTree();
             try { openEvent.Set(); } catch { }
             tray.Visible = false;
             tray.Dispose();
@@ -448,6 +514,7 @@ namespace AthenaNode
                 if (tray != null) tray.Dispose();
                 if (marshal != null) marshal.Dispose();
                 if (restartTimer != null) restartTimer.Dispose();
+                if (stableTimer != null) stableTimer.Dispose();
             }
             base.Dispose(disposing);
         }
