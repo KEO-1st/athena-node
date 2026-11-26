@@ -16,7 +16,7 @@ upgrade a Node, and a Node upgrade does not require rebuilding the Hub.
 
 ### Installer (recommended)
 
-Download `ATHENA Node Setup.exe` from
+Download `ATHENA-Node-Setup.exe` from
 [Releases](https://github.com/KEO-1st/athena-node/releases). It installs under
 `%LOCALAPPDATA%\Programs\ATHENA Node` without an administrator prompt, creates
 Desktop/Start Menu shortcuts, and starts the Node.

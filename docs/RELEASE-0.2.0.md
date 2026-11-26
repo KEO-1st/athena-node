@@ -6,7 +6,7 @@ update check and dependency fallbacks.
 
 ## Download
 
-- `ATHENA Node Setup.exe` — per-user installer, no admin prompt. Installs to
+- `ATHENA-Node-Setup.exe` — per-user installer, no admin prompt. Installs to
   `%LOCALAPPDATA%\Programs\ATHENA Node` and preserves `%LOCALAPPDATA%\ATHENA Node`.
 - `ATHENA-Node-0.2.0-win64.zip` — portable folder with `runtime\node.exe`.
 - `SHA256SUMS.txt` — verify both assets.

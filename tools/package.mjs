@@ -7,7 +7,7 @@
  * Produces:
  *   dist/ATHENA-Node-<version>-win64/       portable folder
  *   dist/ATHENA-Node-<version>-win64.zip     portable download
- *   dist/ATHENA Node Setup.exe               self-contained installer
+ *   dist/ATHENA-Node-Setup.exe               self-contained installer
  *   dist/SHA256SUMS.txt                      release asset hashes
  *
  * The runtime is copied from the Node process running this build, so the
@@ -242,7 +242,7 @@ SECURITY
   const payload = path.join(outDir, ".payload.zip");
   if (installer) {
     zip(folder, payload);
-    installerExe = compileInstaller(payload, path.join(outDir, "ATHENA Node Setup.exe"));
+    installerExe = compileInstaller(payload, path.join(outDir, "ATHENA-Node-Setup.exe"));
     fs.rmSync(payload, { force: true });
   }
 
