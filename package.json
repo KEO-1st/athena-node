@@ -1,0 +1,17 @@
+{
+  "name": "athena-node",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "ATHENA Node — an independent Windows agent for an ATHENA Hub.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node athena-node.mjs",
+    "check": "node tests/check.mjs",
+    "test": "node --test tests",
+    "package": "node tools/package.mjs",
+    "package:portable": "node tools/package.mjs --no-installer"
+  }
+}

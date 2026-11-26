@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>ATHENA NODE · __NAME__</title>
+<style>
+  :root {
+    --ink: #050609;
+    --panel: rgba(13, 13, 18, 0.86);
+    --line: rgba(216, 169, 78, 0.16);
+    --line-soft: rgba(255, 255, 255, 0.07);
+    --text: #e9e6df;
+    --dim: #83808c;
+    --gold: #d8a94e;
+    --gold-soft: #f3d09a;
+    --ok: #5fdca4;
+    --bad: #ff7a52;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(circle at 50% 12%, rgba(216, 169, 78, 0.10), transparent 58%),
+      radial-gradient(circle at 88% 92%, rgba(80, 70, 140, 0.12), transparent 55%),
+      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px) 0 0 / 100% 32px,
+      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px) 0 0 / 32px 100%,
+      var(--ink);
+    color: var(--text);
+    font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px 8px;
+    font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+    font-size: 9.5px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--dim);
+  }
+  header b { color: var(--gold); font-weight: 600; letter-spacing: 0.34em; }
+  .live { display: inline-flex; align-items: center; gap: 8px; }
+  .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 10px var(--gold); animation: pulse 2.6s infinite; }
+  .live.on { color: var(--ok); }
+  .live.on i { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  main { padding: 8px 24px 24px; display: grid; gap: 22px; align-content: start; justify-items: center; }
+  .stage { display: grid; justify-items: center; gap: 18px; padding-top: 8px; }
+  .ring { position: relative; width: min(40vh, 250px); aspect-ratio: 1; display: grid; place-items: center; }
+  .ring .halo {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0 58%, rgba(216,169,78,0.85) 80%, rgba(255,240,205,0.95) 94%, transparent);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+    animation: spin 11s linear infinite;
+    filter: drop-shadow(0 0 12px rgba(216, 169, 78, 0.45));
+  }
+  .ring .track { position: absolute; inset: 14px; border-radius: 50%; border: 1px solid var(--line); }
+  .ring .track.two { inset: 32px; border-style: dashed; border-color: var(--line-soft); animation: spin 34s linear infinite reverse; }
+  .ring .core {
+    position: absolute; inset: 46px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 38%, rgba(216,169,78,0.16), rgba(5,6,9,0.94) 72%);
+    border: 1px solid rgba(216, 169, 78, 0.3);
+    box-shadow: inset 0 0 40px rgba(216, 169, 78, 0.14), 0 0 46px rgba(216, 169, 78, 0.10);
+    display: grid; place-items: center; text-align: center; padding: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .code-label { font-family: Consolas, ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.3em; color: var(--dim); text-transform: uppercase; }
+  .code {
+    font-family: Consolas, ui-monospace, monospace; font-size: clamp(20px, 4vh, 28px); letter-spacing: 0.16em;
+    color: #fffaf0; text-shadow: 0 0 20px rgba(216, 169, 78, 0.55); margin-top: 6px; word-break: break-word;
+  }
+  .codenote { font-family: Consolas, ui-monospace, monospace; font-size: 8px; letter-spacing: 0.14em; color: var(--dim); margin-top: 8px; text-transform: uppercase; }
+  .state { font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--gold); margin-top: 8px; }
+  .state.linked { color: var(--ok); }
+  .name { font-size: clamp(20px, 4.2vh, 30px); letter-spacing: 0.08em; text-transform: uppercase; text-align: center; }
+  .sub { font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: 0.22em; color: var(--dim); text-transform: uppercase; text-align: center; margin-top: 6px; }
+  .grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px;
+    background: var(--line); border: 1px solid var(--line); width: min(760px, 100%);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  }
+  .cell { background: var(--panel); padding: 12px 14px; min-width: 0; }
+  .cell span { display: block; font-family: Consolas, ui-monospace, monospace; font-size: 8px; letter-spacing: 0.26em; color: var(--dim); text-transform: uppercase; }
+  .cell b { display: block; margin-top: 7px; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .chip {
+    font-family: Consolas, ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    padding: 4px 8px; border: 1px solid var(--line-soft); color: var(--dim);
+  }
+  .chip.up { color: var(--ok); border-color: rgba(95, 220, 164, 0.4); }
+  .apps { width: min(760px, 100%); }
+  .apps h2 { margin: 0 0 10px; font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .app-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+  .app-line:last-child { border-bottom: 0; }
+  .app-line span { font-size: 12px; letter-spacing: 0.04em; }
+  footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 24px 22px; flex-wrap: wrap; }
+  .hint { font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: 0.16em; color: var(--dim); line-height: 1.8; text-transform: uppercase; margin: 0; }
+  .hint b { color: var(--gold-soft); font-weight: 500; }
+  button {
+    font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--text); background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+    padding: 10px 15px; cursor: pointer; transition: 160ms;
+  }
+  button:hover { border-color: rgba(216, 169, 78, 0.6); color: #fff; background: rgba(216, 169, 78, 0.10); }
+  .drawer {
+    position: fixed; inset: 0; background: rgba(3, 4, 7, 0.86);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    display: none; place-items: center; padding: 22px; z-index: 20;
+  }
+  .drawer.open { display: grid; }
+  .card { width: min(470px, 96vw); max-height: 90vh; overflow: auto; background: #0a0b10; border: 1px solid var(--line); padding: 22px; }
+  .card h2 { margin: 0 0 16px; font-family: Consolas, ui-monospace, monospace; font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  label { display: block; margin-bottom: 12px; font-family: Consolas, ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
+  input { width: 100%; margin-top: 6px; background: #05060a; border: 1px solid var(--line-soft); color: var(--text); padding: 9px 10px; font-family: Consolas, ui-monospace, monospace; font-size: 12px; }
+  input:focus { outline: none; border-color: rgba(216, 169, 78, 0.6); }
+  input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--gold); }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  .toggle { display: flex; align-items: center; gap: 8px; color: var(--dim); font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; margin: 0; }
+  details { margin: 14px 0; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+  summary { cursor: pointer; font-family: Consolas, ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translate(-50%, 14px);
+    background: #0d0e14; border: 1px solid rgba(216, 169, 78, 0.5); padding: 10px 16px;
+    font-family: Consolas, ui-monospace, monospace; font-size: 9.5px; letter-spacing: 0.14em;
+    opacity: 0; transition: 240ms; text-transform: uppercase; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .log { font-family: Consolas, ui-monospace, monospace; font-size: 9px; color: var(--dim); white-space: pre-wrap; line-height: 1.7; margin: 12px 0 0; }
+  @media (max-width: 620px) {
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    header { padding: 14px 16px 6px; }
+    main { padding: 6px 16px 18px; }
+    footer { padding: 12px 16px 18px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <span><b>ATHENA</b> · NODE __VERSION__</span>
+  <span class="live" id="state-line"><i></i><span>STANDING BY</span></span>
+</header>
+
+<main>
+  <div class="stage">
+    <div class="ring">
+      <div class="halo"></div>
+      <div class="track"></div>
+      <div class="track two"></div>
+      <div class="core">
+        <div>
+          <div class="code-label">Pairing code</div>
+          <div class="code" id="code">__CODE__</div>
+          <div class="codenote" id="codenote">__CODENOTE__</div>
+          <div class="state" id="pstate">READY TO LINK</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="name">__NAME__</div>
+      <div class="sub" id="sub">THIS MACHINE IS ATHENA'S HANDS</div>
+    </div>
+    <div class="grid">
+      <div class="cell"><span>Graphics</span><b id="gpu">—</b></div>
+      <div class="cell"><span>Load</span><b id="load">—</b></div>
+      <div class="cell"><span>Memory</span><b id="memory">—</b></div>
+      <div class="cell"><span>Uptime</span><b id="uptime">—</b></div>
+      <div class="cell"><span>Screen</span><b id="screen">—</b></div>
+      <div class="cell"><span>Running</span><b id="running">—</b></div>
+      <div class="cell"><span>Storage</span><b id="disk">—</b></div>
+      <div class="cell"><span>Display</span><b id="display">—</b></div>
+      <div class="cell"><span>Audio</span><b id="audio">—</b></div>
+      <div class="cell"><span>Installed apps</span><b id="apps-count">—</b></div>
+    </div>
+  </div>
+
+  <section class="apps">
+    <h2>Services on this machine</h2>
+    <div id="services"><p class="hint">reading…</p></div>
+  </section>
+</main>
+
+<footer>
+  <p class="hint">On the hub: <b>NODES → SCAN</b>, then enter this code.<br />Start the node with <b>Start Node.cmd</b> on this PC.</p>
+  <div class="row" style="margin:0">
+    <button id="diagnostics">Diagnostics</button>
+    <button id="settings">Settings</button>
+    <button id="recode">New code</button>
+  </div>
+</footer>
+
+<div class="drawer" id="drawer">
+  <div class="card">
+    <h2>Node settings</h2>
+    <label>Display name<input id="f-name" /></label>
+    <label class="toggle"><input type="checkbox" id="f-shell" /> Allow shell commands</label>
+    <label class="toggle"><input type="checkbox" id="f-shutdown" /> Allow remote shutdown</label>
+    <label class="toggle"><input type="checkbox" id="f-input" /> Allow mouse &amp; keyboard control</label>
+    <details>
+      <summary>App paths (optional)</summary>
+      <label>ComfyUI folder — set it only if ComfyUI is installed here<input id="f-comfy" placeholder="C:\ComfyUI_windows_portable" /></label>
+      <label>ComfyUI port<input id="f-comfyport" /></label>
+      <div class="row"><button id="detect">Find ComfyUI</button></div>
+    </details>
+    <div class="row" style="justify-content:space-between">
+      <button id="save">Save</button>
+      <button id="close">Close</button>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <button id="restart">Restart node</button>
+      <button id="stop">Stop node</button>
+    </div>
+    <p class="log" id="log"></p>
+  </div>
+</div>
+
+<div class="drawer" id="diag-drawer">
+  <div class="card">
+    <h2>Diagnostics</h2>
+    <p class="hint" id="diag-summary">CHECKING…</p>
+    <pre class="log" id="diag-log"></pre>
+    <div class="row" style="justify-content:space-between">
+      <button id="update-check">Check for updates</button>
+      <button id="diag-close">Close</button>
+    </div>
+    <p class="log" id="update-note"></p>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const toast = (text) => {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = text;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => el.remove(), 2600);
+  };
+
+  let status = null;
+  let localToken = "";
+
+  /* The node mints a per-boot panel token. Ask for it with the explicit panel
+     intent header, then send it on every local call. */
+  async function localHeaders(extra = {}) {
+    if (!localToken) {
+      const res = await fetch("/api/local/bootstrap", { headers: { "x-athena-panel": "1" }, cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "panel locked");
+      localToken = json.token;
+    }
+    return { "x-athena-local": localToken, ...extra };
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch("/api/local/status", { cache: "no-store", headers: await localHeaders() });
+      status = await res.json();
+      render(status);
+    } catch {
+      $("state-line").textContent = "NODE DOWN";
+    }
+  }
+
+  function uptime(seconds) {
+    const s = Number(seconds) || 0;
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  }
+
+  function render(s) {
+    const linked = s.state === "linked";
+    const hr = s.linkedAt ? new Date(s.linkedAt) : null;
+    $("pstate").textContent = linked ? "LINKED" : "READY TO LINK";
+    $("pstate").className = "state" + (linked ? " linked" : "");
+    const line = $("state-line");
+    line.className = "live" + (linked ? " on" : "");
+    line.lastElementChild.textContent = linked ? "LINKED · " + String(s.hub || "hub").toUpperCase() : "STANDING BY";
+    $("sub").textContent = linked
+      ? "CONTROLLED BY " + String(s.hub || "HUB").toUpperCase() + (hr ? " SINCE " + hr.toLocaleTimeString() : "")
+      : "THIS MACHINE IS ATHENA'S HANDS";
+    $("gpu").textContent = s.gpu ? s.gpu.name + (s.gpu.vramGb ? " · " + s.gpu.vramGb + "GB" : "") : s.cpu || "no GPU reporting";
+    $("load").textContent = (s.gpu && s.gpu.util != null ? s.gpu.util + "% GPU" : "idle") + (s.gpu && s.gpu.temp ? " · " + s.gpu.temp + "°" : "");
+    $("memory").textContent = s.hardware?.memory?.totalGb != null
+      ? s.hardware.memory.freeGb + " / " + s.hardware.memory.totalGb + " GB free"
+      : "—";
+    $("uptime").textContent = uptime(s.uptimeSec);
+    $("screen").textContent = s.capabilities?.screen ? (s.capabilities?.input ? "VIEW + CONTROL" : "VIEW ONLY") : "—";
+    const tasks = (s.tasks || []).filter((task) => task.state === "running").length;
+    $("running").textContent = tasks ? tasks + " TASK" + (tasks === 1 ? "" : "S") : "IDLE";
+    const disks = s.hardware?.disks;
+    $("disk").textContent = Array.isArray(disks)
+      ? disks.map((disk) => disk.id + " " + (disk.freeGb ?? "?") + " free").join(" · ") || "no fixed disks"
+      : "not available";
+    const displays = s.hardware?.displays;
+    $("display").textContent = Array.isArray(displays)
+      ? displays.map((display) => `${display.width || "?"}×${display.height || "?"}${display.refreshHz ? " @ " + display.refreshHz + "Hz" : ""}`).join(" · ")
+      : "not available";
+    const audio = s.hardware?.audio;
+    $("audio").textContent = audio
+      ? `${audio.inputs.length} input · ${audio.outputs.length} output${audio.captureReady ? " · CAPTURE READY" : ""}`
+      : "not available";
+    $("apps-count").textContent = s.hardware?.installedApps?.count != null ? `${s.hardware.installedApps.count} INSTALLED` : "not available";
+
+    /* Only services that exist here — an uninstalled app is noise on the wall */
+    const services = Object.entries(s.services || {}).filter(([, service]) => service && (service.ok || service.installed || service.dir));
+    $("services").innerHTML = services.length
+      ? services
+          .map(([id, service]) => {
+            const label = id.charAt(0).toUpperCase() + id.slice(1);
+            const state = service?.ok ? "UP" : "INSTALLED · STOPPED";
+            const port = service?.port ? " · PORT " + service.port : "";
+            return `<div class="app-line">
+              <span>${esc(label)}</span>
+              <span class="chip${service?.ok ? " up" : ""}">${esc(state + port)}</span>
+            </div>`;
+          })
+          .join("")
+      : `<p class="hint">No apps or services installed here yet — see APPS on the hub.</p>`;
+    $("log").textContent = (s.log || "").split("\n").slice(-3).join("\n");
+  }
+
+  $("settings").onclick = async () => {
+    const full = await (await fetch("/api/local/status", { headers: await localHeaders() })).json();
+    $("f-name").value = full.name || "";
+    $("f-comfy").value = full.services?.comfy?.dir || "";
+    $("f-comfyport").value = full.services?.comfy?.port || 8188;
+    $("f-shell").checked = Boolean(full.capabilities?.shell);
+    $("f-shutdown").checked = Boolean(full.capabilities?.shutdown);
+    $("f-input").checked = Boolean(full.capabilities?.input);
+    $("drawer").classList.add("open");
+  };
+
+  $("close").onclick = () => $("drawer").classList.remove("open");
+  $("recode").onclick = async () => {
+    const res = await (await fetch("/api/local/code", { method: "POST", headers: await localHeaders() })).json();
+    $("code").textContent = res.code;
+    toast("new pairing code · " + res.code);
+  };
+  $("detect").onclick = async () => {
+    toast("searching for ComfyUI…");
+    const res = await (await fetch("/api/action", {
+      method: "POST",
+      headers: await localHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ op: "detect" }),
+    })).json();
+    const found = res.found || [];
+    if (!found.length) return toast("nothing found · set the folder by hand");
+    $("f-comfy").value = found[0].path;
+    toast("found " + found.length + " install(s)");
+  };
+  $("save").onclick = async () => {
+    await fetch("/api/local/config", {
+      method: "POST",
+      headers: await localHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        name: $("f-name").value,
+        comfyDir: $("f-comfy").value,
+        comfyPort: Number($("f-comfyport").value) || 8188,
+        allowShell: $("f-shell").checked,
+        allowShutdown: $("f-shutdown").checked,
+        allowInput: $("f-input").checked,
+      }),
+    });
+    $("drawer").classList.remove("open");
+    toast("saved");
+    poll();
+  };
+
+  $("diagnostics").onclick = async () => {
+    $("diag-summary").textContent = "CHECKING…";
+    $("diag-log").textContent = "";
+    $("update-note").textContent = "";
+    $("diag-drawer").classList.add("open");
+    try {
+      const res = await fetch("/api/local/diagnostics", { headers: await localHeaders(), cache: "no-store" });
+      const diag = await res.json();
+      $("diag-summary").textContent = diag.ok ? "ALL CHECKS PASSED" : "ONE OR MORE CHECKS FAILED";
+      $("diag-log").textContent = [
+        `NODE ${diag.version || "?"} · DATA ${diag.dataDir || "?"}`,
+        `RUNTIME ${diag.runtime?.version || "?"} · BUNDLED ${diag.runtime?.bundled ? "YES" : "NO"}`,
+        `INSTALLERS ${(diag.managers || []).join(", ") || "none detected"}`,
+        "",
+        ...(diag.checks || []).map((check) => `${check.ok ? "OK  " : "FAIL"} ${check.id}: ${check.detail}`),
+        "",
+        diag.log || "",
+      ].join("\n");
+    } catch (error) {
+      $("diag-summary").textContent = "DIAGNOSTICS UNAVAILABLE";
+      $("diag-log").textContent = String(error.message || error);
+    }
+  };
+  $("diag-close").onclick = () => $("diag-drawer").classList.remove("open");
+  $("update-check").onclick = async () => {
+    $("update-note").textContent = "CHECKING GITHUB…";
+    try {
+      const res = await fetch("/api/local/update", { headers: await localHeaders(), cache: "no-store" });
+      const update = await res.json();
+      if (!update.ok) throw new Error(update.error || "Update check failed.");
+      $("update-note").textContent = update.available
+        ? `UPDATE ${update.latest} IS AVAILABLE · ${update.url}`
+        : `UP TO DATE · LATEST ${update.latest || update.current}`;
+    } catch (error) {
+      $("update-note").textContent = String(error.message || error);
+    }
+  };
+  $("restart").onclick = async () => {
+    await fetch("/api/local/restart", { method: "POST", headers: await localHeaders() });
+    $("drawer").classList.remove("open");
+    toast("restarting node…");
+  };
+  $("stop").onclick = async () => {
+    if (!confirm("Stop ATHENA Node on this PC?")) return;
+    await fetch("/api/local/quit", { method: "POST", headers: await localHeaders() });
+    $("drawer").classList.remove("open");
+    toast("node stopped");
+  };
+
+  poll();
+  setInterval(poll, 4000);
+</script>
+</body>
+</html>
