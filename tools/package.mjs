@@ -122,9 +122,27 @@ function compileLauncher(folder) {
     "/r:System.dll",
     "/r:System.Windows.Forms.dll",
     "/r:System.Drawing.dll",
+    `/win32icon:${path.join(ROOT, "assets", "athena.ico")}`,
     path.join(ROOT, "tools", "node-launcher.cs"),
   ]);
   if (!fs.existsSync(exe)) throw new Error("The launcher compiler did not produce ATHENA Node.exe.");
+  return exe;
+}
+
+function compileUninstaller(folder) {
+  if (!CSC) throw new Error("The Windows C# compiler was not found; cannot build the uninstaller.");
+  const exe = path.join(folder, "Uninstall ATHENA Node.exe");
+  run(CSC, [
+    "/nologo",
+    "/optimize+",
+    "/target:winexe",
+    `/out:${exe}`,
+    "/r:System.dll",
+    "/r:System.Windows.Forms.dll",
+    `/win32icon:${path.join(ROOT, "assets", "athena.ico")}`,
+    path.join(ROOT, "tools", "node-uninstaller.cs"),
+  ]);
+  if (!fs.existsSync(exe)) throw new Error("The compiler did not produce the uninstaller.");
   return exe;
 }
 
@@ -140,6 +158,7 @@ function compileInstaller(payload, destination) {
     "/r:System.IO.Compression.dll",
     "/r:System.IO.Compression.FileSystem.dll",
     "/r:Microsoft.CSharp.dll",
+    `/win32icon:${path.join(ROOT, "assets", "athena.ico")}`,
     `/resource:${payload},payload.zip`,
     path.join(ROOT, "tools", "node-installer.cs"),
   ]);
@@ -153,6 +172,7 @@ export function buildNodeProduct({ outDir = DIST, runtime = true, installer = tr
   const app = path.join(folder, "app");
   for (const name of APP_FILES) copy(path.join(ROOT, name), path.join(app, name));
   fs.cpSync(path.join(ROOT, "lib"), path.join(app, "lib"), { recursive: true });
+  fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
 
   if (!runtime) throw new Error("ATHENA Node requires a bundled runtime; do not build with --no-runtime.");
   const runtimeDir = path.join(folder, "runtime");
@@ -160,35 +180,8 @@ export function buildNodeProduct({ outDir = DIST, runtime = true, installer = tr
   copy(process.execPath, path.join(runtimeDir, "node.exe"));
 
   const exe = compileLauncher(folder);
+  compileUninstaller(folder);
 
-  write(
-    path.join(folder, "Start ATHENA Node.cmd"),
-    `@echo off
-title ATHENA NODE ${NODE_VERSION}
-cd /d "%~dp0"
-if not exist "%~dp0ATHENA Node.exe" (
-  echo ATHENA Node.exe is missing. Extract the whole package.
-  pause
-  exit /b 1
-)
-start "" "%~dp0ATHENA Node.exe"
-`
-  );
-  write(
-    path.join(folder, "Uninstall ATHENA Node.cmd"),
-    `@echo off
-title ATHENA NODE UNINSTALL
-cd /d "%~dp0"
-echo.
-echo   This removes the ATHENA Node program from this PC.
-echo   Your identity, pairing and logs in %%LOCALAPPDATA%%\\ATHENA Node are kept.
-echo.
-choice /c YN /m "Remove ATHENA Node"
-if errorlevel 2 exit /b 0
-powershell -NoProfile -NonInteractive -Command "Start-Sleep -Milliseconds 300; Remove-Item -LiteralPath '%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\ATHENA Node' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ([Environment]::GetFolderPath('Desktop') + '\\ATHENA Node.lnk') -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ATHENA Node' -Recurse -Force -ErrorAction SilentlyContinue; $p='%~dp0'.TrimEnd('\\'); Start-Process cmd.exe -ArgumentList '/c','timeout /t 1 >nul & rmdir /s /q \"'+$p+'\"' -WindowStyle Hidden"
-echo   Removed. Your data remains in %LOCALAPPDATA%\\ATHENA Node.
-`
-  );
   write(
     path.join(folder, "VERSION"),
     `${NODE_VERSION}\n`

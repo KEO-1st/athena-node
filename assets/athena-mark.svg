@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">ATHENA Node mark</title>
+  <desc id="desc">An original geometric ATHENA sigil: a gold obelisk-spear, swept wing lines and a dashed celestial ring.</desc>
+  <defs>
+    <linearGradient id="gold" x1="20" y1="5" x2="45" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff6df"/>
+      <stop offset=".42" stop-color="#e8bf70"/>
+      <stop offset="1" stop-color="#8d611c"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="27.5" fill="none" stroke="#d8a94e" stroke-width=".9" stroke-dasharray="2 6" opacity=".52"/>
+  <path d="M29 16C20 11 12 11 5 15c8 3 14 6 22 9M35 16c9-5 17-5 24-1-8 3-14 6-22 9" fill="none" stroke="#d8a94e" stroke-width="1.45" stroke-linecap="round" opacity=".88"/>
+  <path d="M32 4 39 25 35 52 32 60 29 52 25 25Z" fill="url(#gold)" stroke="#f8e6bd" stroke-width="1"/>
+  <path d="M17 29 47 29 43 35 21 35Z" fill="url(#gold)" opacity=".94"/>
+  <path d="M32 9v42" stroke="#fff3d4" stroke-width=".85" opacity=".52"/>
+  <circle cx="32" cy="8" r="1.8" fill="#f6dba6"/>
+</svg>

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -11,34 +12,37 @@ using System.Windows.Forms;
 /*
  * ATHENA Node desktop launcher.
  *
- * The agent itself is a Node.js process. This launcher gives the product a
- * normal Windows face: it starts the bundled runtime without a console, keeps
- * the agent alive after a crash, opens the local panel, and exposes Open,
- * Restart, Data folder and Quit from the notification area.
- *
- * Restart requests from the panel exit the agent with code 75; stop requests
- * use 76. No system Node.js, WinGet or PATH setup is required.
+ * The agent is a Node.js process. This launcher gives the product one Windows
+ * face: a single tray identity, one panel window, crash recovery and a clean
+ * restart/quit path. A second launch never opens a second panel; it signals the
+ * running launcher through a named event and exits quietly.
  */
 namespace AthenaNode
 {
     internal static class Program
     {
-        private static Mutex mutex;
+        private const string LauncherMutex = "ATHENA.Node.Launcher.0_3";
+        private const string OpenPanelEvent = "ATHENA.Node.OpenPanel.0_3";
 
         [STAThread]
         private static void Main()
         {
             bool created;
-            mutex = new Mutex(true, "ATHENA.Node.Launcher.0_2", out created);
-            if (!created)
+            using (var mutex = new Mutex(true, LauncherMutex, out created))
+            using (var openEvent = new EventWaitHandle(false, EventResetMode.AutoReset, OpenPanelEvent))
             {
-                MessageBox.Show("ATHENA Node is already running. Use its tray icon to open the panel.", "ATHENA Node");
-                return;
-            }
+                if (!created)
+                {
+                    /* Another launcher already owns the tray and panel. Wake it
+                       instead of showing a duplicate-instance dialog. */
+                    try { openEvent.Set(); } catch { }
+                    return;
+                }
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new LauncherContext());
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new LauncherContext(openEvent));
+            }
         }
     }
 
@@ -47,19 +51,22 @@ namespace AthenaNode
         private readonly NotifyIcon tray;
         private readonly Control marshal;
         private readonly System.Windows.Forms.Timer restartTimer;
+        private readonly EventWaitHandle openEvent;
         private readonly string root;
         private readonly string appDir;
         private readonly string runtime;
         private readonly string dataDir;
         private readonly string logFile;
         private Process child;
+        private Process panel;
         private bool quitting;
+        private bool panelOpening;
         private int crashCount;
-        private bool restarting;
         private int port = 47910;
 
-        public LauncherContext()
+        public LauncherContext(EventWaitHandle openEvent)
         {
+            this.openEvent = openEvent;
             root = AppDomain.CurrentDomain.BaseDirectory;
             appDir = Path.Combine(root, "app");
             runtime = Path.Combine(root, "runtime", "node.exe");
@@ -78,7 +85,7 @@ namespace AthenaNode
             menu.MenuItems.Add("Quit", delegate { Quit(); });
 
             tray = new NotifyIcon();
-            tray.Icon = SystemIcons.Application;
+            tray.Icon = LoadIcon();
             tray.Text = "ATHENA Node";
             tray.ContextMenu = menu;
             tray.Visible = true;
@@ -95,6 +102,22 @@ namespace AthenaNode
                 if (!quitting) StartChild();
             };
 
+            var signal = new Thread(delegate()
+            {
+                while (!quitting)
+                {
+                    try
+                    {
+                        if (!openEvent.WaitOne(1000)) continue;
+                        if (quitting) return;
+                        try { marshal.BeginInvoke((Action)OpenPanel); } catch { }
+                    }
+                    catch { return; }
+                }
+            });
+            signal.IsBackground = true;
+            signal.Start();
+
             if (!File.Exists(runtime) || !File.Exists(Path.Combine(appDir, "athena-node.mjs")))
             {
                 tray.ShowBalloonTip(6000, "ATHENA Node is incomplete",
@@ -103,6 +126,23 @@ namespace AthenaNode
             }
 
             StartChild();
+        }
+
+        private static Icon LoadIcon()
+        {
+            try
+            {
+                string file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app", "assets", "athena.ico");
+                if (File.Exists(file)) return new Icon(file);
+            }
+            catch { }
+            try
+            {
+                Icon associated = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (associated != null) return associated;
+            }
+            catch { }
+            return SystemIcons.Application;
         }
 
         private int ReadPort()
@@ -174,7 +214,7 @@ namespace AthenaNode
                         try
                         {
                             if (Environment.GetEnvironmentVariable("ATHENA_NO_BROWSER") != "1")
-                                marshal.BeginInvoke((Action)delegate { OpenPanel(); });
+                                marshal.BeginInvoke((Action)OpenPanel);
                         }
                         catch { }
                         return;
@@ -184,7 +224,7 @@ namespace AthenaNode
                 try
                 {
                     tray.ShowBalloonTip(6000, "ATHENA Node is not answering",
-                        "Open the tray menu and choose Diagnostics, or read launcher.log in the data folder.", ToolTipIcon.Warning);
+                        "Use the tray menu to open the data folder and read launcher.log.", ToolTipIcon.Warning);
                 }
                 catch { }
             });
@@ -209,9 +249,8 @@ namespace AthenaNode
 
         private void OnChildExit()
         {
-            /* Process.Exited runs on a worker thread. Every tray and timer call
-               below must happen on the WinForms thread, otherwise Start() on the
-               restart timer is silently lost and the agent stays down. */
+            /* Process.Exited arrives on a worker thread. Tray and timer calls
+               must move back to the WinForms thread. */
             if (marshal.InvokeRequired)
             {
                 try { marshal.BeginInvoke((Action)OnChildExit); } catch { }
@@ -247,13 +286,11 @@ namespace AthenaNode
 
         private void RestartChild()
         {
-            if (restarting) return;
-            restarting = true;
-            quitting = false;
+            if (quitting) return;
             crashCount = 0;
             StopChild();
+            tray.Text = "ATHENA Node · restarting";
             restartTimer.Start();
-            restarting = false;
         }
 
         private void StopChild()
@@ -272,26 +309,110 @@ namespace AthenaNode
 
         private void OpenPanel()
         {
-            string url = "http://127.0.0.1:" + port + "/";
-            string[] browsers = new string[]
+            if (quitting) return;
+            if (panel != null && !panel.HasExited)
             {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft\\Edge\\Application\\msedge.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft\\Edge\\Application\\msedge.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google\\Chrome\\Application\\chrome.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google\\Chrome\\Application\\chrome.exe")
-            };
-            foreach (string browser in browsers)
+                if (FocusPanel(panel)) return;
+                /* The browser process is alive but its window is hidden or
+                   minimised. Do not create a second one; tell the person where
+                   the panel is instead. */
+                tray.ShowBalloonTip(3000, "ATHENA Node panel is open",
+                    "Use the taskbar to bring the existing ATHENA Node panel forward.", ToolTipIcon.Info);
+                return;
+            }
+            if (panelOpening) return;
+            panelOpening = true;
+            try
             {
-                if (!File.Exists(browser)) continue;
+                string url = "http://127.0.0.1:" + port + "/";
+                string[] browsers = new string[]
+                {
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft\\Edge\\Application\\msedge.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft\\Edge\\Application\\msedge.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google\\Chrome\\Application\\chrome.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google\\Chrome\\Application\\chrome.exe")
+                };
+                string profile = Path.Combine(dataDir, "panel-browser");
+                Directory.CreateDirectory(profile);
+                foreach (string browser in browsers)
+                {
+                    if (!File.Exists(browser)) continue;
+                    try
+                    {
+                        var info = new ProcessStartInfo(browser);
+                        info.UseShellExecute = false;
+                        info.Arguments = "--app=\"" + url + "\" --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --window-size=1080,820";
+                        panel = Process.Start(info);
+                        if (panel != null)
+                        {
+                            panel.EnableRaisingEvents = true;
+                            panel.Exited += delegate { panel = null; };
+                            WriteLog("panel opened in " + Path.GetFileName(browser));
+                            return;
+                        }
+                    }
+                    catch { }
+                }
                 try
                 {
-                    Process.Start(browser, "--app=" + url + " --window-size=760,900");
-                    return;
+                    panel = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                    if (panel != null)
+                    {
+                        panel.EnableRaisingEvents = true;
+                        panel.Exited += delegate { panel = null; };
+                    }
                 }
                 catch { }
             }
-            try { Process.Start(url); } catch { }
+            finally { panelOpening = false; }
         }
+
+        private bool FocusPanel(Process process)
+        {
+            try
+            {
+                IntPtr handle = process.MainWindowHandle;
+                if (handle == IntPtr.Zero) handle = FindPanelWindow(process.Id);
+                if (handle == IntPtr.Zero) handle = FindPanelWindow(0);
+                if (handle == IntPtr.Zero) return false;
+                ShowWindow(handle, 9);
+                SetForegroundWindow(handle);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static IntPtr FindPanelWindow(int pid)
+        {
+            IntPtr found = IntPtr.Zero;
+            EnumWindows(delegate(IntPtr hwnd, IntPtr lparam)
+            {
+                if (!IsWindowVisible(hwnd)) return true;
+                int owner;
+                GetWindowThreadProcessId(hwnd, out owner);
+                bool sameProcess = pid != 0 && owner == pid;
+                bool sameTitle = pid == 0 && GetWindowText(hwnd).StartsWith("ATHENA Node", StringComparison.OrdinalIgnoreCase);
+                if (!sameProcess && !sameTitle) return true;
+                found = hwnd;
+                return false;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        private static string GetWindowText(IntPtr hwnd)
+        {
+            var text = new StringBuilder(512);
+            GetWindowText(hwnd, text, text.Capacity);
+            return text.ToString();
+        }
+
+        private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lparam);
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lparam);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+        [DllImport("user32.dll")] private static extern int GetWindowThreadProcessId(IntPtr hwnd, out int processId);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
 
         private void WriteLog(string line)
         {
@@ -308,6 +429,13 @@ namespace AthenaNode
             quitting = true;
             restartTimer.Stop();
             StopChild();
+            try
+            {
+                if (panel != null && !panel.HasExited) panel.Kill();
+            }
+            catch { }
+            panel = null;
+            try { openEvent.Set(); } catch { }
             tray.Visible = false;
             tray.Dispose();
             ExitThread();

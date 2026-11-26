@@ -18,7 +18,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 test("version.json and version.mjs agree", () => {
   const file = JSON.parse(fs.readFileSync(path.join(ROOT, "version.json"), "utf8"));
   assert.equal(file.version, NODE_VERSION);
-  assert.equal(file.version, "0.2.0");
+  assert.equal(file.version, "0.3.0");
   assert.equal(file.protocol, NODE_PROTOCOL);
 });
 

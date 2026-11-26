@@ -8,6 +8,7 @@ import {
   parseDisks,
   parseDisplays,
   parseInstalledApps,
+  parseInstalledMemory,
   resetInventoryCache,
 } from "../inventory.mjs";
 
@@ -74,10 +75,20 @@ test("installed-app parser de-duplicates names and reports a real count", () => 
   assert.deepEqual(result.sample, ["7-Zip", "Google Chrome"]);
 });
 
+test("installed memory is measured separately from usable memory", () => {
+  const installed = parseInstalledMemory(
+    JSON.stringify([{ Capacity: 17179869184 }, { Capacity: 17179869184 }])
+  );
+  assert.equal(installed, 32);
+  assert.equal(parseInstalledMemory("[]"), null);
+  assert.equal(parseInstalledMemory("not json"), null);
+});
+
 test("memory and CPU expose null on the first sample instead of a fake zero", () => {
   const memory = memoryInfo();
   assert.ok(memory.totalGb > 0);
   assert.ok(memory.freeGb >= 0);
+  assert.equal(memory.installedGb, null, "physical module capacity is filled by memoryInventory, not guessed");
   resetInventoryCache();
   assert.equal(cpuUtilization(), null);
 });

@@ -23,7 +23,7 @@ import { MAX_HUB_PROTOCOL, MIN_HUB_PROTOCOL, NODE_FEATURES, NODE_PROTOCOL, hello
 import { APP_SPECS } from "./lib/app-catalog.mjs";
 import { audioDeviceBelongsToSource, classifyAudioDevices, pickAudioDevice } from "./lib/audio-sources.mjs";
 import { asUrl, programCandidates, resolveProgramTarget } from "./programs.mjs";
-import { audioInventory, cpuUtilization, diskInventory, displayInventory, installedApps, memoryInfo, osInfo } from "./inventory.mjs";
+import { audioInventory, cpuUtilization, diskInventory, displayInventory, installedApps, memoryInfo, memoryInventory, osInfo } from "./inventory.mjs";
 import { installDependency, portableToolsDir } from "./dependencies.mjs";
 import {
   HttpError,
@@ -61,9 +61,11 @@ const DEFAULTS = {
   port: 47_910,
   code: "",
   pairOpen: false,
-  allowShell: true,
-  allowShutdown: true,
-  allowInput: true,
+  /* A new Node is observable and pairable, but cannot run commands, inject
+     input or power itself off until the person at the machine opts in. */
+  allowShell: false,
+  allowShutdown: false,
+  allowInput: false,
   screenMaxWidth: 1280,
   comfyDir: "",
   comfyPort: 8188,
@@ -320,10 +322,16 @@ async function gpuInfo() {
   let value = null;
   if (res.ok && res.out) {
     const first = res.out.split(/\r?\n/)[0].split(",").map((part) => part.trim());
+    const totalMb = Number(first[1]);
+    const usedMb = Number(first[2]);
+    const totalGb = Number.isFinite(totalMb) && totalMb > 0 ? Math.round(totalMb / 1024) : null;
+    const usedGb = Number.isFinite(usedMb) ? Number((usedMb / 1024).toFixed(1)) : null;
     value = {
       name: first[0] || "GPU",
-      vramGb: Number.isFinite(Number(first[1])) && Number(first[1]) > 0 ? Math.round(Number(first[1]) / 1024) : null,
-      usedGb: Number.isFinite(Number(first[2])) ? Number((Number(first[2]) / 1024).toFixed(1)) : null,
+      vramGb: totalGb,
+      usedGb,
+      availableGb: totalGb != null && usedGb != null ? Number(Math.max(0, totalGb - usedGb).toFixed(1)) : null,
+      availablePct: totalGb != null && usedGb != null && totalGb > 0 ? Math.round(((totalGb - usedGb) / totalGb) * 100) : null,
       util: Number.isFinite(Number(first[3])) ? Number(first[3]) : null,
       temp: Number.isFinite(Number(first[4])) ? Number(first[4]) : null,
       driver: first[5] || null,
@@ -332,7 +340,7 @@ async function gpuInfo() {
     const wmic = await run("wmic", ["path", "win32_VideoController", "get", "name"], { timeout: 6000 });
     if (wmic.ok && wmic.out) {
       const name = wmic.out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(1)[0];
-      if (name) value = { name, vramGb: null, usedGb: null, util: null, temp: null, driver: null };
+      if (name) value = { name, vramGb: null, usedGb: null, availableGb: null, availablePct: null, util: null, temp: null, driver: null };
     }
   }
   gpuCache = { at: Date.now(), value };
@@ -1376,14 +1384,14 @@ async function checkForUpdate() {
 
 async function status() {
   const [gpu, comfy, ollama] = await Promise.all([gpuInfo(), comfyStats(), ollamaInfo()]);
-  const [disks, displays, audio, apps] = await Promise.all([
+  const [disks, displays, audio, apps, memory] = await Promise.all([
     within(diskInventory(run, IS_WIN), 1500),
     within(displayInventory(run, IS_WIN), 1500),
     within(audioInventory(run, IS_WIN, ffmpegPath()), 1800),
     within(installedApps(run, IS_WIN), 1500),
+    within(memoryInventory(run, IS_WIN), 4000, memoryInfo()),
   ]);
   const cpus = os.cpus();
-  const memory = memoryInfo();
   const cpuPct = cpuUtilization();
   const hardware = {
     os: osInfo(),
@@ -1415,6 +1423,7 @@ async function status() {
     linkedAt: state.linkedAt,
     uptimeSec: Math.round(process.uptime()),
     hostname: os.hostname(),
+    dataDir: NODE_DIR,
     platform: `${os.type()} ${os.release()}`,
     cpu: cpus[0]?.model?.trim() || null,
     cores: cpus.length,
@@ -1436,6 +1445,7 @@ async function status() {
       ollama: ollama.ok,
       screen: hostAvailable(),
       input: hostAvailable() && config.allowInput,
+      pairCodeRequired: !config.pairOpen,
       audio: audioAvailable(),
       apps: APP_SPECS.map((spec) => spec.id),
     },
@@ -1612,6 +1622,9 @@ const server = http.createServer(async (req, res) => {
 
     if (route === "/api/input" && req.method === "POST") {
       if (!tokenOk(req)) return send(403, { error: "Bad token." });
+      /* A disabled capability is an authorization refusal, not malformed
+         input. Keep the server-side gate ahead of any pointer work. */
+      if (!config.allowInput) return send(403, { error: "Remote control is switched off on this node (config.json → allowInput, or the node window → PERMISSIONS)." });
       const payload = await body();
       try {
         const result = await screenInput(payload);
@@ -1751,6 +1764,10 @@ const server = http.createServer(async (req, res) => {
           return send(200, await speak(args));
         case "open-panel":
           return send(200, { url: openWindow() });
+        case "open-data":
+          if (!IS_WIN) return send(400, { error: "Open the data folder from the tray on this platform." });
+          await run("explorer.exe", [NODE_DIR], { timeout: 5000 });
+          return send(200, { ok: true, dir: NODE_DIR });
         case "config": {
           /* A hub may tune paths and display details, but it may not widen this
              machine's permissions. That is a decision for the person at the

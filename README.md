@@ -7,7 +7,7 @@ shell, hardware telemetry, audio, ComfyUI, Ollama and installable apps.
 This repository is the canonical Node product. A Hub upgrade does **not**
 upgrade a Node, and a Node upgrade does not require rebuilding the Hub.
 
-- **Node version:** 0.2.0
+- **Node version:** 0.3.0
 - **Node protocol:** 1
 - **Hub protocol accepted:** 1
 - **Runtime:** bundled Node.js — no system Node, npm or WinGet needed
@@ -23,7 +23,7 @@ Desktop/Start Menu shortcuts, and starts the Node.
 
 ### Portable
 
-Download `ATHENA-Node-0.2.0-win64.zip`, extract the **whole** folder, and run
+Download `ATHENA-Node-0.3.0-win64.zip`, extract the **whole** folder, and run
 `ATHENA Node.exe`. Keep `runtime\` and `app\` beside the launcher.
 
 Identity, settings and logs live in `%LOCALAPPDATA%\ATHENA Node`, outside the
@@ -36,7 +36,30 @@ program folder. Installer upgrades and uninstalls preserve that directory.
 3. On the Hub: **NODES → SCAN → LINK**, then type the code.
 4. Allow the Windows firewall prompt for **Private** networks.
 
-## What 0.2.0 adds
+## What 0.3.0 adds
+
+- **One window:** the installer no longer shows a success dialog before the
+  launcher opens the panel. A second launch signals the running launcher and
+  focuses/reopens the existing panel instead of starting another copy.
+- **Adaptive desktop panel:** tabbed Overview / Machine / Permissions /
+  Diagnostics, fixed-height shell, no page scrolling, reduced-motion support and
+  a click-to-copy pairing code.
+- **Background notice:** the first hide action explains that closing the panel
+  leaves the agent running in the tray.
+- **Safe first run:** new Nodes deny shell, keyboard/mouse input and remote
+  shutdown until the person at the machine enables them. Existing configs keep
+  their saved choices.
+- **Memory truth:** installed physical RAM is reported separately from usable
+  and currently available memory. GPU VRAM available is measured from total and
+  used; unavailable values stay `null`.
+- **No public CMD files:** `Start Node` and the CMD uninstaller are gone. The
+  package has `ATHENA Node.exe`, a compiled `Uninstall ATHENA Node.exe`, and the
+  agent files. PowerShell helpers are internal screen/input automation only.
+- **Original identity:** an original gold obelisk/wing sigil is used for the
+  executable, installer, tray and panel. Reference images supplied by the owner
+  were not copied.
+
+## What 0.2.0 added
 
 - **Desktop launcher** (`ATHENA Node.exe`): starts the bundled runtime with no
   console window, opens the panel, lives in the notification area, and offers
@@ -75,8 +98,9 @@ The agent has no runtime npm dependencies.
 
 ## Compatibility
 
-The protocol number is separate from the software version. Hub 3.2 accepts
-protocol 1, so this Node and older 0.1 Nodes can be paired by the same Hub.
+The protocol number is separate from the software version. Hub 3.2 and Hub 3.3
+accept protocol 1, so this Node and older 0.1/0.2 Nodes can be paired by the
+same Hub.
 Additive status fields do not change the protocol. See
 [docs/PROTOCOL.md](docs/PROTOCOL.md).
 

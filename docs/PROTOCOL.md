@@ -4,7 +4,7 @@ The Node is independently versioned and independently deployed. The Hub and
 Node share a small HTTP contract, not source imports.
 
 ```text
-NODE_VERSION   = 0.2.0     (software, this repository)
+NODE_VERSION   = 0.3.0     (software, this repository)
 NODE_PROTOCOL  = 1         (wire contract)
 hubProtocol    = { min: 1, max: 1 }
 ```
@@ -46,15 +46,17 @@ the meaning of an existing one requires a protocol bump.
 ### Status shape (protocol 1)
 
 Existing fields (`cpu`, `cores`, `memory`, `gpu`, `services`, `tasks`,
-`capabilities`, `screen`) remain. 0.2.0 adds:
+`capabilities`, `screen`) remain. 0.2.0 added the hardware block; 0.3.0
+adds installed-vs-usable memory and available VRAM without changing the
+protocol:
 
 ```json
 {
   "hardware": {
     "os": { "hostname": "...", "platform": "win32", "type": "Windows_NT", "release": "..." },
     "cpu": { "model": "...", "cores": 16, "utilizationPct": 12 },
-    "memory": { "totalGb": 32, "freeGb": 18.4, "usedGb": 13.6, "availablePct": 58 },
-    "gpu": { "name": "...", "vramGb": 8, "utilizationPct": 4 },
+    "memory": { "installedGb": 32, "totalGb": 31.8, "freeGb": 18.4, "usedGb": 13.4, "availablePct": 58 },
+    "gpu": { "name": "...", "vramGb": 8, "usedGb": 1.2, "availableGb": 6.8, "availablePct": 85, "util": 4 },
     "disks": [{ "id": "C:", "label": "System", "totalGb": 953.9, "freeGb": 201.2, "usedPct": 79 }],
     "displays": [{ "name": "\\\\.\\DISPLAY1", "primary": true, "width": 2560, "height": 1440, "refreshHz": 165 }],
     "audio": { "all": ["..."], "inputs": ["..."], "outputs": ["..."], "source": "ffmpeg-dshow", "captureReady": true },

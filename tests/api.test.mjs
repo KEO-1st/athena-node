@@ -66,7 +66,7 @@ test("authenticated Node API rejects bad tokens and disabled execution", async (
   const hello = await waitFor(`${base}/api/hello`);
   const helloBody = await hello.json();
   assert.equal(helloBody.protocol, 1);
-  assert.equal(helloBody.nodeVersion, "0.2.0");
+  assert.equal(helloBody.nodeVersion, "0.3.0");
 
   const noToken = await fetch(`${base}/api/status`);
   assert.equal(noToken.status, 403);
@@ -88,6 +88,22 @@ test("authenticated Node API rejects bad tokens and disabled execution", async (
   });
   assert.equal(exec.status, 403);
   assert.match((await exec.json()).error, /disabled/i);
+
+  const shutdown = await fetch(`${base}/api/action`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-athena-token": "paired-token" },
+    body: JSON.stringify({ op: "shutdown", args: {} }),
+  });
+  assert.equal(shutdown.status, 403, "remote shutdown must be refused when disabled");
+  assert.match((await shutdown.json()).error, /disabled/i);
+
+  const input = await fetch(`${base}/api/input`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-athena-token": "paired-token" },
+    body: JSON.stringify({ op: "click", x: 0.5, y: 0.5 }),
+  });
+  assert.equal(input.status, 403, "remote input must be refused when disabled");
+  assert.match((await input.json()).error, /switched off|disabled/i);
 
   const unknown = await fetch(`${base}/api/action`, {
     method: "POST",
@@ -112,11 +128,29 @@ test("authenticated Node API rejects bad tokens and disabled execution", async (
   const diagnosticBody = await diagnostics.json();
   assert.ok(Array.isArray(diagnosticBody.checks));
   assert.ok(diagnosticBody.checks.every((check) => "ok" in check));
-  assert.equal(diagnosticBody.version, "0.2.0");
+  assert.equal(diagnosticBody.version, "0.3.0");
 
   const localStatus = await fetch(`${base}/api/local/status`, {
     headers: { "x-athena-local": token },
   });
   assert.equal(localStatus.status, 200);
+
+  /* The panel may change local permissions; a Hub token may not. */
+  const remoteWiden = await fetch(`${base}/api/action`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-athena-token": "paired-token" },
+    body: JSON.stringify({ op: "config", args: { allowShell: true } }),
+  });
+  assert.equal(remoteWiden.status, 403);
+  const localWiden = await fetch(`${base}/api/local/config`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-athena-local": token },
+    body: JSON.stringify({ allowShell: true, allowShutdown: true, allowInput: true }),
+  });
+  assert.equal(localWiden.status, 200);
+  const widened = await (await fetch(`${base}/api/local/status`, { headers: { "x-athena-local": token } })).json();
+  assert.equal(widened.capabilities.shell, true);
+  assert.equal(widened.capabilities.shutdown, true);
+  assert.equal(widened.capabilities.input, process.platform === "win32");
   assert.ok(output.includes("node up on"), `agent output was:\n${output}`);
 });

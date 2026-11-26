@@ -142,13 +142,42 @@ export function cpuUtilization() {
 export function memoryInfo() {
   const total = os.totalmem();
   const free = os.freemem();
-  if (!Number.isFinite(total) || total <= 0) return { totalGb: null, freeGb: null, usedGb: null, availablePct: null };
+  if (!Number.isFinite(total) || total <= 0) {
+    return { totalGb: null, freeGb: null, usedGb: null, availablePct: null, installedGb: null };
+  }
   return {
+    /* totalGb is what the OS can actually address (usable), not the physical
+       module capacity. installedGb is filled by memoryInventory(). */
     totalGb: round1(total / GB),
     freeGb: round1(free / GB),
     usedGb: round1((total - free) / GB),
     availablePct: Math.round((free / total) * 100),
+    installedGb: null,
   };
+}
+
+export function parseInstalledMemory(text) {
+  const value = parseJson(text);
+  if (value === null) return null;
+  const rows = Array.isArray(value) ? value : [value];
+  const bytes = rows.reduce((sum, row) => {
+    const capacity = Number(row?.Capacity ?? row?.capacity);
+    return Number.isFinite(capacity) && capacity > 0 ? sum + capacity : sum;
+  }, 0);
+  return bytes > 0 ? round1(bytes / GB) : null;
+}
+
+/* Physical modules vs addressable memory. Windows reserves some hardware
+   address space, so installed and usable are genuinely different numbers. */
+export async function memoryInventory(run, isWin) {
+  const memory = memoryInfo();
+  if (!isWin) return memory;
+  const installed = await cached("installed-memory", 5 * 60_000, async () => {
+    const [file, args, options] = PS("Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity");
+    const res = await run(file, args, options);
+    return res.ok ? parseInstalledMemory(res.out) : null;
+  });
+  return { ...memory, installedGb: installed };
 }
 
 export function osInfo() {
