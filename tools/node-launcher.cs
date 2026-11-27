@@ -3,19 +3,25 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 /*
  * ATHENA Node desktop launcher.
  *
  * The agent is a Node.js process. This launcher gives the product one Windows
- * face: a single tray identity, one panel window, crash recovery and a clean
- * restart/quit path. A second launch never opens a second panel; it signals the
- * running launcher through a named event and exits quietly.
+ * face: a single tray identity, one embedded WebView2 window, crash recovery
+ * and a clean restart/quit path. A second launch never opens a second panel; it
+ * signals the running launcher through a named event and exits quietly.
+ *
+ * The panel is a real desktop window owned by this process. Closing it hides
+ * the window to the tray and says so at that moment; it does not depend on a
+ * browser process hand-off or on guessing which Chromium window is ours.
  */
 namespace AthenaNode
 {
@@ -75,9 +81,12 @@ namespace AthenaNode
         private readonly string dataDir;
         private readonly string logFile;
         private Process child;
-        private Process panel;
+        private Form panelForm;
+        private WebView2 panelWeb;
+        private bool panelReady;
+        private bool panelLoading;
         private bool quitting;
-        private bool panelOpening;
+        private bool closeAllowed;
         private int crashCount;
         private int crashDelayMs = 1500;
         private const int MaxCrashRestarts = 3;
@@ -222,7 +231,7 @@ namespace AthenaNode
                 child.BeginOutputReadLine();
                 child.BeginErrorReadLine();
                 WriteLog("launcher started node " + child.Id + " (port " + port + ")");
-                tray.Text = "ATHENA Node · starting";
+                tray.Text = "ATHENA Node - starting";
                 WaitForHealth();
             }
             catch (Exception error)
@@ -243,7 +252,7 @@ namespace AthenaNode
                     if (quitting || child == null || child.HasExited) return;
                     if (Healthy())
                     {
-                        tray.Text = "ATHENA Node · running";
+                        tray.Text = "ATHENA Node - running";
                         stableTimer.Start();
                         try
                         {
@@ -308,7 +317,7 @@ namespace AthenaNode
             if (code == 76) { Quit(); return; }
             if (code == 75)
             {
-                tray.Text = "ATHENA Node · restarting";
+                tray.Text = "ATHENA Node - restarting";
                 restartTimer.Interval = 800;
                 restartTimer.Start();
                 return;
@@ -323,7 +332,7 @@ namespace AthenaNode
             if (crashCount <= MaxCrashRestarts)
             {
                 crashDelayMs = Math.Min(30000, 1500 * (1 << (crashCount - 1)));
-                tray.Text = "ATHENA Node · recovering";
+                tray.Text = "ATHENA Node - recovering";
                 tray.ShowBalloonTip(3500, "ATHENA Node stopped",
                     reason + ". Restarting in " + (crashDelayMs / 1000) + "s (attempt " + crashCount + " of " + MaxCrashRestarts + ").", ToolTipIcon.Warning);
                 restartTimer.Interval = crashDelayMs;
@@ -331,7 +340,7 @@ namespace AthenaNode
             }
             else
             {
-                tray.Text = "ATHENA Node · stopped";
+                tray.Text = "ATHENA Node - stopped";
                 tray.ShowBalloonTip(8000, "ATHENA Node stopped",
                     reason + ". It failed " + MaxCrashRestarts + " times and will not retry automatically. Open the data folder and read launcher.log, then use Restart node.", ToolTipIcon.Error);
             }
@@ -344,7 +353,7 @@ namespace AthenaNode
             crashDelayMs = 1500;
             stableTimer.Stop();
             StopChild();
-            tray.Text = "ATHENA Node · restarting";
+            tray.Text = "ATHENA Node - restarting";
             restartTimer.Interval = 500;
             restartTimer.Start();
         }
@@ -369,136 +378,130 @@ namespace AthenaNode
         private void OpenPanel()
         {
             if (quitting) return;
-            if (panel != null && !panel.HasExited)
+            if (panelForm != null && !panelForm.IsDisposed)
             {
-                if (FocusPanel(panel)) return;
-                /* A Chromium process can outlive its last window (background
-                   mode). It is not a panel any more, so remove that stale
-                   process before opening exactly one fresh window. */
-                WriteLog("panel process has no window; clearing stale process");
-                KillPanelTree();
+                if (panelForm.WindowState == FormWindowState.Minimized) panelForm.WindowState = FormWindowState.Normal;
+                panelForm.Show();
+                panelForm.WindowState = FormWindowState.Normal;
+                panelForm.Activate();
+                panelForm.BringToFront();
+                if (panelReady && panelWeb != null && panelWeb.CoreWebView2 != null)
+                {
+                    try { panelWeb.CoreWebView2.Reload(); } catch { }
+                }
+                return;
             }
-            if (panelOpening) return;
-            panelOpening = true;
+            if (panelLoading) return;
+            panelLoading = true;
             try
             {
-                string url = "http://127.0.0.1:" + port + "/";
-                string[] browsers = new string[]
+                panelForm = new Form();
+                panelForm.Text = "ATHENA Node";
+                panelForm.Width = 1180;
+                panelForm.Height = 820;
+                panelForm.MinimumSize = new Size(760, 560);
+                panelForm.StartPosition = FormStartPosition.CenterScreen;
+                panelForm.BackColor = Color.FromArgb(11, 12, 18);
+                panelForm.Icon = LoadIcon();
+                panelForm.ShowInTaskbar = true;
+
+                panelWeb = new WebView2();
+                panelWeb.Dock = DockStyle.Fill;
+                panelWeb.DefaultBackgroundColor = Color.FromArgb(11, 12, 18);
+                panelForm.Controls.Add(panelWeb);
+
+                panelForm.FormClosing += delegate(object sender, FormClosingEventArgs e)
                 {
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft\\Edge\\Application\\msedge.exe"),
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft\\Edge\\Application\\msedge.exe"),
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google\\Chrome\\Application\\chrome.exe"),
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google\\Chrome\\Application\\chrome.exe")
+                    if (quitting || closeAllowed) return;
+                    if (e.CloseReason == CloseReason.UserClosing)
+                    {
+                        e.Cancel = true;
+                        HidePanel();
+                    }
                 };
-                string profile = Path.Combine(dataDir, "panel-browser");
-                Directory.CreateDirectory(profile);
-                foreach (string browser in browsers)
+                panelForm.Resize += delegate
                 {
-                    if (!File.Exists(browser)) continue;
+                    if (quitting) return;
+                    if (panelForm.WindowState == FormWindowState.Minimized)
+                    {
+                        panelForm.Hide();
+                        ShowBackgroundNotice();
+                    }
+                };
+                panelForm.Shown += async delegate { await LoadPanelAsync(); };
+                panelForm.Show();
+                WriteLog("embedded panel window opened");
+            }
+            catch (Exception error)
+            {
+                panelLoading = false;
+                WriteLog("panel window failed: " + error);
+                MessageBox.Show("The ATHENA Node window could not open.\n\n" + error.Message,
+                    "ATHENA Node", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async Task LoadPanelAsync()
+        {
+            try
+            {
+                string profile = Path.Combine(dataDir, "panel-webview");
+                Directory.CreateDirectory(profile);
+                var environment = await CoreWebView2Environment.CreateAsync(null, profile, null);
+                await panelWeb.EnsureCoreWebView2Async(environment);
+                var core = panelWeb.CoreWebView2;
+                if (core == null) throw new Exception("WebView2 did not create a browser core.");
+                core.Settings.AreDefaultContextMenusEnabled = false;
+                core.Settings.IsStatusBarEnabled = false;
+                core.Settings.AreDevToolsEnabled = false;
+                core.Settings.IsSwipeNavigationEnabled = false;
+                core.WebMessageReceived += delegate(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+                {
                     try
                     {
-                        var info = new ProcessStartInfo(browser);
-                        info.UseShellExecute = false;
-                        info.Arguments = "--app=\"" + url + "\" --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --window-size=1080,820";
-                        panel = Process.Start(info);
-                        if (panel != null)
+                        string message = e.TryGetWebMessageAsString();
+                        if (!String.IsNullOrEmpty(message) && message.IndexOf("hide-panel", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            WatchPanel(panel);
-                            WriteLog("panel opened in " + Path.GetFileName(browser));
-                            return;
+                            HidePanel();
                         }
                     }
                     catch { }
-                }
-                try
-                {
-                    panel = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                    if (panel != null) WatchPanel(panel);
-                }
-                catch { }
+                };
+                core.Navigate("http://127.0.0.1:" + port + "/");
+                panelReady = true;
+                panelLoading = false;
+                WriteLog("embedded panel loaded (WebView2 " + core.Environment.BrowserVersionString + ")");
             }
-            finally { panelOpening = false; }
-        }
-
-        private void WatchPanel(Process process)
-        {
-            process.EnableRaisingEvents = true;
-            process.Exited += delegate
+            catch (Exception error)
             {
-                if (panel != process) return;
-                panel = null;
-                if (quitting) return;
-                try
-                {
-                    tray.ShowBalloonTip(5000, "ATHENA Node is still running",
-                        "The panel is closed, but the Node agent and tray icon are still active. Open the panel again from the tray.", ToolTipIcon.Info);
-                }
-                catch { }
-            };
+                panelLoading = false;
+                panelReady = false;
+                WriteLog("WebView2 failed: " + error);
+                MessageBox.Show(
+                    "ATHENA Node needs the Microsoft WebView2 runtime, which is part of Windows 10/11 but missing or damaged on this PC.\n\n" +
+                    error.Message + "\n\nInstall the Evergreen WebView2 Runtime, then start ATHENA Node again.",
+                    "ATHENA Node", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                try { panelForm.Close(); } catch { }
+            }
         }
 
-        private void KillPanelTree()
+        private void HidePanel()
         {
-            var process = panel;
-            panel = null;
-            if (process == null) return;
+            if (panelForm == null || panelForm.IsDisposed) return;
+            panelForm.Hide();
+            ShowBackgroundNotice();
+        }
+
+        private void ShowBackgroundNotice()
+        {
+            if (quitting) return;
             try
             {
-                if (!process.HasExited)
-                {
-                    Process.Start(new ProcessStartInfo("taskkill", "/pid " + process.Id + " /t /f") { UseShellExecute = false, CreateNoWindow = true });
-                    process.WaitForExit(3000);
-                }
+                tray.ShowBalloonTip(4500, "ATHENA Node is still running",
+                    "The window is closed, but the agent and tray icon are active. Open ATHENA Node from the tray at any time.", ToolTipIcon.Info);
             }
             catch { }
         }
-
-        private bool FocusPanel(Process process)
-        {
-            try
-            {
-                IntPtr handle = process.MainWindowHandle;
-                if (handle == IntPtr.Zero) handle = FindPanelWindow(process.Id);
-                if (handle == IntPtr.Zero) handle = FindPanelWindow(0);
-                if (handle == IntPtr.Zero) return false;
-                ShowWindow(handle, 9);
-                SetForegroundWindow(handle);
-                return true;
-            }
-            catch { return false; }
-        }
-
-        private static IntPtr FindPanelWindow(int pid)
-        {
-            IntPtr found = IntPtr.Zero;
-            EnumWindows(delegate(IntPtr hwnd, IntPtr lparam)
-            {
-                if (!IsWindowVisible(hwnd)) return true;
-                int owner;
-                GetWindowThreadProcessId(hwnd, out owner);
-                bool sameProcess = pid != 0 && owner == pid;
-                bool sameTitle = pid == 0 && GetWindowText(hwnd).StartsWith("ATHENA Node", StringComparison.OrdinalIgnoreCase);
-                if (!sameProcess && !sameTitle) return true;
-                found = hwnd;
-                return false;
-            }, IntPtr.Zero);
-            return found;
-        }
-
-        private static string GetWindowText(IntPtr hwnd)
-        {
-            var text = new StringBuilder(512);
-            GetWindowText(hwnd, text, text.Capacity);
-            return text.ToString();
-        }
-
-        private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lparam);
-        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lparam);
-        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
-        [DllImport("user32.dll")] private static extern int GetWindowThreadProcessId(IntPtr hwnd, out int processId);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
-        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
-        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
 
         private void WriteLog(string line)
         {
@@ -516,7 +519,9 @@ namespace AthenaNode
             restartTimer.Stop();
             stableTimer.Stop();
             StopChild();
-            KillPanelTree();
+            closeAllowed = true;
+            try { if (panelForm != null && !panelForm.IsDisposed) panelForm.Close(); } catch { }
+            try { if (panelWeb != null) panelWeb.Dispose(); } catch { }
             try { openEvent.Set(); } catch { }
             tray.Visible = false;
             tray.Dispose();
@@ -531,6 +536,8 @@ namespace AthenaNode
                 if (marshal != null) marshal.Dispose();
                 if (restartTimer != null) restartTimer.Dispose();
                 if (stableTimer != null) stableTimer.Dispose();
+                if (panelWeb != null) panelWeb.Dispose();
+                if (panelForm != null) panelForm.Dispose();
             }
             base.Dispose(disposing);
         }

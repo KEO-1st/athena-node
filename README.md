@@ -43,13 +43,21 @@ program folder. Installer upgrades and uninstalls preserve that directory.
   launcher and focuses/reopens the existing panel. The launcher owns exactly one
   panel, the agent holds an exclusive instance lock, and crash recovery is
   bounded to three retries with backoff instead of an endless restart loop.
-- **Adaptive desktop panel:** tabbed Overview / Machine / Processes /
-  Permissions / Diagnostics, fixed-height shell, no page scrolling,
-  reduced-motion support and a click-to-copy pairing code. CPU and memory have
-  measured meters, and the Processes tab reads the live process table on demand
-  (it stops polling when the tab is left and never kills anything).
-- **Background notice:** the first hide action explains that closing the panel
-  leaves the agent running in the tray.
+- **Native desktop window:** the panel is an embedded WebView2 window owned by
+  the launcher, not a browser `--app` process. Closing or minimising hides it to
+  the notification area and shows the background notice at that moment; the tray
+  restores the same window normally. Quit stops the agent.
+- **Management surface:** Overview / Processes / Performance / Optimization /
+  Software / System / Permissions / Diagnostics. Live CPU, GPU, memory,
+  network throughput and disk charts use measured samples; the process table
+  shows per-PID CPU and memory with a confirmed End action that refuses protected
+  Windows processes. Optimization only reports measured thresholds and never
+  pretends to cap GPU or RAM.
+- **Faster screen previews:** preview resizing uses HighQualityBilinear after a
+  measured 18% capture-cost reduction (88.4 ms to 72.8 ms at 1280 px); measured
+  preview capture rose from 9.1 to 10.7 fps on the reference PC. Focused capture
+  is capped at 1280 px because 1600 measured slower (9.8 fps) with no readable
+  benefit.
 - **Safe first run:** new Nodes deny shell, keyboard/mouse input and remote
   shutdown until the person at the machine enables them. Existing configs keep
   their saved choices.

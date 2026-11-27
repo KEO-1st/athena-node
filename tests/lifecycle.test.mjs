@@ -23,6 +23,20 @@ function cscPath() {
   ].find((file) => fs.existsSync(file));
 }
 
+function webView2Sdk() {
+  const candidates = [
+    path.join(ROOT, "tools", "webview2"),
+    path.join(ROOT, "..", "tools", "webview2"),
+    path.join(ROOT, "..", "tools", ".cache", "webview2", "extracted"),
+    path.join(os.tmpdir(), "athena-webview2", "1.0.4370.26"),
+  ];
+  return candidates.find((dir) =>
+    fs.existsSync(path.join(dir, "lib", "net462", "Microsoft.Web.WebView2.Core.dll")) &&
+    fs.existsSync(path.join(dir, "lib", "net462", "Microsoft.Web.WebView2.WinForms.dll")) &&
+    fs.existsSync(path.join(dir, "build", "native", "x64", "WebView2Loader.dll"))
+  );
+}
+
 function freePort() {
   return new Promise((resolve) => {
     const server = http.createServer();
@@ -76,6 +90,8 @@ function alive(pid) {
 test("the packaged launcher keeps one agent and one owner through launch, restart and quit", { skip: !enabled, timeout: 120_000 }, async (t) => {
   const compiler = cscPath();
   assert.ok(compiler, "the .NET Framework C# compiler is required on Windows");
+  const sdk = webView2Sdk();
+  assert.ok(sdk, "the WebView2 managed SDK is required to compile the desktop launcher");
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "athena-lifecycle-"));
   const folder = path.join(base, "product");
   const app = path.join(folder, "app");
@@ -91,6 +107,11 @@ test("the packaged launcher keeps one agent and one owner through launch, restar
   fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
   fs.copyFileSync(process.execPath, path.join(runtime, "node.exe"));
 
+  for (const file of [
+    path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.Core.dll"),
+    path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.WinForms.dll"),
+    path.join(sdk, "build", "native", "x64", "WebView2Loader.dll"),
+  ]) fs.copyFileSync(file, path.join(folder, path.basename(file)));
   const exe = path.join(folder, "ATHENA Node.exe");
   const compile = spawnSync(
     compiler,
@@ -102,6 +123,8 @@ test("the packaged launcher keeps one agent and one owner through launch, restar
       "/r:System.dll",
       "/r:System.Windows.Forms.dll",
       "/r:System.Drawing.dll",
+      `/r:${path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.Core.dll")}`,
+      `/r:${path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.WinForms.dll")}`,
       `/win32icon:${path.join(ROOT, "assets", "athena.ico")}`,
       path.join(ROOT, "tools", "node-launcher.cs"),
     ],

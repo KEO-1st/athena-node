@@ -395,6 +395,104 @@ async function waitForAnyProcess(names, timeoutMs = 4500) {
   return null;
 }
 
+/* Cumulative interface byte counters, sampled. The delta is a real measured
+   throughput, never an estimate from link speed. */
+let networkPrevious = null;
+
+async function networkSample() {
+  try {
+    let rx = null;
+    let tx = null;
+    if (IS_WIN) {
+      const res = await run("netstat", ["-e"], { timeout: 4000 });
+      if (res.ok) {
+        const line = res.out.split(/\r?\n/).find((row) => /^\s*Bytes\s+/i.test(row));
+        const parts = line ? line.trim().split(/\s+/) : [];
+        if (parts.length >= 3) {
+          rx = Number(parts[1]);
+          tx = Number(parts[2]);
+        }
+      }
+    } else {
+      const text = fs.readFileSync("/proc/net/dev", "utf8");
+      for (const line of text.split("\n")) {
+        const match = line.match(/^\s*[^:]+:\s*(\d+)(?:\s+\d+){7}\s+(\d+)/);
+        if (!match) continue;
+        rx = (rx || 0) + Number(match[1]);
+        tx = (tx || 0) + Number(match[2]);
+      }
+    }
+    if (!Number.isFinite(rx) || !Number.isFinite(tx)) return null;
+    const now = Date.now();
+    const previous = networkPrevious;
+    networkPrevious = { at: now, rx, tx };
+    const elapsed = previous ? (now - previous.at) / 1000 : 0;
+    const perSecond = (current, before) => (previous && elapsed > 0.2 ? Math.max(0, (current - before) / elapsed) : null);
+    return {
+      rxMbps: perSecond(rx, previous?.rx) == null ? null : Number(((perSecond(rx, previous.rx) * 8) / 1_000_000).toFixed(2)),
+      txMbps: perSecond(tx, previous?.tx) == null ? null : Number(((perSecond(tx, previous.tx) * 8) / 1_000_000).toFixed(2)),
+      rxGb: Number((rx / 1024 ** 3).toFixed(2)),
+      txGb: Number((tx / 1024 ** 3).toFixed(2)),
+      at: new Date(now).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+let processCpuCache = { at: 0, value: new Map() };
+
+/** Real per-process CPU from the Windows performance counters, normalized by
+   core count. A process the counters do not expose stays null. */
+async function processCpuMap() {
+  if (!IS_WIN) return new Map();
+  if (Date.now() - processCpuCache.at < 3500) return processCpuCache.value;
+  const value = new Map();
+  try {
+    const res = await run("powershell", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$ErrorActionPreference='SilentlyContinue'; Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Select-Object IDProcess,Name,PercentProcessorTime | ConvertTo-Json -Compress",
+    ], { timeout: 9000 });
+    if (res.ok && res.out) {
+      const parsed = JSON.parse(res.out);
+      const rows = Array.isArray(parsed) ? parsed : [parsed];
+      const cores = Math.max(1, os.cpus().length);
+      for (const row of rows) {
+        const pid = Number(row.IDProcess);
+        const percent = Number(row.PercentProcessorTime);
+        if (Number.isInteger(pid) && pid > 0 && Number.isFinite(percent)) value.set(pid, Number((percent / cores).toFixed(1)));
+      }
+    }
+  } catch {
+    /* counters unavailable; CPU stays unknown instead of zero */
+  }
+  processCpuCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Individual PIDs (not a grouped name) so a confirmed terminate targets
+   exactly the process the person saw. */
+async function topProcessDetails(limit = 60) {
+  const rows = await rawProcessRows();
+  /* The process table is the important part. Windows CPU counters can take a
+     few seconds on a busy machine, so do not hold the list hostage for them;
+     the counter query keeps running and its cache fills the next refresh. */
+  const cpu = await Promise.race([
+    processCpuMap(),
+    new Promise((resolve) => setTimeout(() => resolve(new Map()), 1800)),
+  ]);
+  return {
+    processes: rows
+      .map((row) => ({ ...row, memMb: Math.round(row.memMb), cpuPct: cpu.has(row.pid) ? cpu.get(row.pid) : null }))
+      .sort((a, b) => b.memMb - a.memMb)
+      .slice(0, limit),
+    total: rows.length,
+    at: new Date().toISOString(),
+  };
+}
+
 async function topProcesses(limit = 12) {
   if (processCache.value && Date.now() - processCache.at < 4000) return processCache.value;
   const rows = await rawProcessRows();
@@ -1638,7 +1736,7 @@ async function checkForUpdate() {
 }
 
 async function status() {
-  const [gpu, comfy, ollama] = await Promise.all([gpuInfo(), comfyStats(), ollamaInfo()]);
+  const [gpu, comfy, ollama, network] = await Promise.all([gpuInfo(), comfyStats(), ollamaInfo(), networkSample()]);
   const [disks, displays, audio, apps, memory] = await Promise.all([
     within(diskInventory(run, IS_WIN), 1500),
     within(displayInventory(run, IS_WIN), 1500),
@@ -1688,6 +1786,7 @@ async function status() {
     port: config.port,
     gpu,
     hardware,
+    network,
     services: {
       comfy: { ...comfy, dir: config.comfyDir, managed: Boolean(comfyChild), startedAt: comfyStartedAt || null },
       ollama,
@@ -2095,12 +2194,51 @@ const server = http.createServer(async (req, res) => {
        and a full process list is the most expensive Windows query here. */
     if (route === "/api/local/processes") {
       if (!localOk(req)) return send(403, { error: "Local panel token required." });
-      const [processes, comfy, ollama] = await Promise.all([topProcesses(40), comfyStats(2000, 1500), ollamaInfo()]);
+      const [processes, comfy, ollama] = await Promise.all([topProcessDetails(60), comfyStats(2000, 1500), ollamaInfo()]);
       return send(200, {
         ok: true,
         ...processes,
         services: { comfy: { ok: Boolean(comfy.ok) }, ollama: { ok: Boolean(ollama.ok) } },
       });
+    }
+
+    /* A cheap sample for the live graph: no disks, apps or displays. */
+    if (route === "/api/local/perf") {
+      if (!localOk(req)) return send(403, { error: "Local panel token required." });
+      const [gpu, network] = await Promise.all([gpuInfo(), networkSample()]);
+      const memory = memoryInfo();
+      return send(200, {
+        ok: true,
+        at: new Date().toISOString(),
+        uptimeSec: Math.round(process.uptime()),
+        cpu: { utilizationPct: cpuUtilization(), cores: os.cpus().length },
+        memory,
+        gpu,
+        network,
+      });
+    }
+
+    /* Terminating a process is a local, confirmed action. It is never exposed
+       to a Hub, and protected Windows processes are refused. */
+    if (route === "/api/local/process-kill" && req.method === "POST") {
+      if (!localOk(req)) return send(403, { error: "Local panel token required." });
+      const payload = await body();
+      const pid = Number(payload.pid);
+      if (!Number.isInteger(pid) || pid <= 4) return send(400, { error: "Invalid process id." });
+      if (pid === process.pid) return send(400, { error: "That is this Node agent. Use Restart or Quit instead." });
+      const rows = await rawProcessRows();
+      const target = rows.find((row) => row.pid === pid);
+      if (!target) return send(404, { error: "That process is no longer running." });
+      const protectedNames = new Set(["system", "idle", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe", "smss.exe", "dwm.exe", "explorer.exe"]);
+      if (protectedNames.has(String(target.name).toLowerCase())) {
+        return send(403, { error: `${target.name} is a protected Windows process and will not be stopped from here.` });
+      }
+      const result = await run("taskkill", ["/pid", String(pid), "/t", "/f"], { timeout: 15_000 });
+      log(`local process terminate ${target.name} (pid ${pid}) · ${result.ok ? "ok" : "failed"}`);
+      if (!result.ok) return send(400, { error: (result.err || result.out || "Windows refused to stop that process.").slice(0, 300) });
+      processCache = { at: 0, value: null };
+      processCpuCache = { at: 0, value: new Map() };
+      return send(200, { ok: true, pid, name: target.name });
     }
 
     if (route === "/api/local/config" && req.method === "POST") {

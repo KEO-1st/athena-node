@@ -22,19 +22,44 @@ test("the launcher is single-instance and reopens the existing panel", () => {
   assert.match(launcher, /return "\.0_3";/, "production keeps the fixed 0.3 namespace by default");
   assert.match(launcher, /ATHENA_LAUNCHER_NAMESPACE/, "tests can isolate a side-by-side instance");
   assert.match(launcher, /openEvent\.Set\(\)/);
-  assert.match(launcher, /FocusPanel/);
-  assert.match(launcher, /panelOpening/);
   assert.match(launcher, /code == 75/);
   assert.match(launcher, /code == 76/);
 });
 
-test("existing windows are not opened over a live panel process", () => {
+test("the panel is one native WebView2 window, not a browser --app hand-off", () => {
   const launcher = read("tools/node-launcher.cs");
-  const open = launcher.slice(launcher.indexOf("private void OpenPanel"), launcher.indexOf("private bool FocusPanel"));
-  const guard = open.indexOf("panel != null && !panel.HasExited");
-  const launch = open.indexOf("Process.Start(info)");
-  assert.ok(guard > -1 && launch > guard, "the live-panel guard must run before a new window is started");
-  assert.match(open, /return;/, "a live panel must stop the second launch path");
+  assert.match(launcher, /using Microsoft\.Web\.WebView2\.WinForms/);
+  assert.match(launcher, /new WebView2\(\)/);
+  assert.match(launcher, /EnsureCoreWebView2Async/);
+  assert.doesNotMatch(launcher, /--app=/, "a browser app window is not the desktop product");
+  assert.doesNotMatch(launcher, /FindPanelWindow/, "window ownership no longer depends on finding a Chromium window");
+  const open = launcher.slice(launcher.indexOf("private void OpenPanel"), launcher.indexOf("private async Task LoadPanelAsync"));
+  assert.ok(open.indexOf("panelForm != null && !panelForm.IsDisposed") > -1, "an existing native window is restored instead of duplicated");
+  assert.doesNotMatch(open, /tray\.ShowBalloonTip/, "opening the panel must not show the background notification");
+});
+
+test("close and minimise hide the window and notify, tray open restores it normally", () => {
+  const launcher = read("tools/node-launcher.cs");
+  assert.match(launcher, /FormClosing/);
+  assert.match(launcher, /e\.Cancel = true;\s*HidePanel\(\);/);
+  assert.match(launcher, /WindowState == FormWindowState\.Minimized[\s\S]{0,120}Hide\(\)[\s\S]{0,80}ShowBackgroundNotice\(\)/);
+  assert.match(launcher, /panelForm\.WindowState = FormWindowState\.Normal;/);
+  assert.match(launcher, /private void HidePanel\(\)[\s\S]{0,200}ShowBackgroundNotice\(\)/);
+  assert.match(read("panel.html"), /chrome\.webview\.postMessage\(\{ type: "hide-panel" \}\)/);
+});
+
+test("performance and process management use real measurements and confirmed actions", () => {
+  const source = read("athena-node.mjs");
+  assert.match(source, /route === "\/api\/local\/perf"/);
+  assert.match(source, /route === "\/api\/local\/process-kill"/);
+  assert.match(source, /netstat/);
+  assert.match(source, /PercentProcessorTime/);
+  const panel = read("panel.html");
+  assert.match(panel, /data-tab="performance"/);
+  assert.match(panel, /data-tab="optimization"/);
+  assert.match(panel, /data-tab="software"/);
+  assert.match(panel, /no fake “boost” switch/i);
+  assert.match(panel, /confirm\(`End \$\{name\} \(PID \$\{pid\}\)\?/);
 });
 
 test("the panel copies the pairing code, supports the keyboard and explains background mode", () => {

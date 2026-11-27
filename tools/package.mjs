@@ -31,6 +31,40 @@ const CSC = [
   path.join(process.env.WINDIR || "C:\\Windows", "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe"),
 ].find((file) => fs.existsSync(file));
 
+const WEBVIEW2_VERSION = "1.0.4370.26";
+
+/* The desktop window is WinForms + WebView2, not a browser --app window.
+   Fetch the small managed SDK once when this repo does not already have it. */
+function ensureWebView2() {
+  const candidates = [
+    path.join(ROOT, "tools", "webview2"),
+    path.join(ROOT, "..", "tools", "webview2"),
+    path.join(ROOT, "..", "tools", ".cache", "webview2", "extracted"),
+    path.join(os.tmpdir(), "athena-webview2", WEBVIEW2_VERSION),
+  ];
+  const valid = (dir) =>
+    fs.existsSync(path.join(dir, "lib", "net462", "Microsoft.Web.WebView2.Core.dll")) &&
+    fs.existsSync(path.join(dir, "lib", "net462", "Microsoft.Web.WebView2.WinForms.dll")) &&
+    fs.existsSync(path.join(dir, "build", "native", "x64", "WebView2Loader.dll"));
+  const found = candidates.find(valid);
+  if (found) return found;
+  const dir = path.join(os.tmpdir(), "athena-webview2", WEBVIEW2_VERSION);
+  fs.mkdirSync(dir, { recursive: true });
+  const zipFile = path.join(dir, "sdk.zip");
+  if (!fs.existsSync(zipFile)) {
+    const url = `https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${WEBVIEW2_VERSION}/microsoft.web.webview2.${WEBVIEW2_VERSION}.nupkg`;
+    const script = "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing -Uri '" + url + "' -OutFile '" + zipFile.replace(/'/g, "''") + "'";
+    const fetched = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 120_000 });
+    if (fetched.status !== 0 || !fs.existsSync(zipFile)) throw new Error(`Could not download the WebView2 SDK: ${fetched.stderr || fetched.stdout || "no file"}`);
+  }
+  if (!valid(dir)) {
+    const unpack = "Expand-Archive -LiteralPath '" + zipFile.replace(/'/g, "''") + "' -DestinationPath '" + dir.replace(/'/g, "''") + "' -Force";
+    const expanded = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", unpack], { encoding: "utf8", timeout: 120_000 });
+    if (expanded.status !== 0 || !valid(dir)) throw new Error(`Could not extract the WebView2 SDK: ${expanded.stderr || expanded.stdout || "missing files"}`);
+  }
+  return dir;
+}
+
 const APP_FILES = [
   "athena-node.mjs",
   "panel.html",
@@ -113,6 +147,12 @@ function buildInfo(folder, fields) {
 
 function compileLauncher(folder) {
   if (!CSC) throw new Error("The Windows C# compiler was not found; cannot build ATHENA Node.exe.");
+  const sdk = ensureWebView2();
+  for (const file of [
+    path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.Core.dll"),
+    path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.WinForms.dll"),
+    path.join(sdk, "build", "native", "x64", "WebView2Loader.dll"),
+  ]) copy(file, path.join(folder, path.basename(file)));
   const exe = path.join(folder, "ATHENA Node.exe");
   run(CSC, [
     "/nologo",
@@ -122,6 +162,8 @@ function compileLauncher(folder) {
     "/r:System.dll",
     "/r:System.Windows.Forms.dll",
     "/r:System.Drawing.dll",
+    `/r:${path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.Core.dll")}`,
+    `/r:${path.join(sdk, "lib", "net462", "Microsoft.Web.WebView2.WinForms.dll")}`,
     `/win32icon:${path.join(ROOT, "assets", "athena.ico")}`,
     path.join(ROOT, "tools", "node-launcher.cs"),
   ]);
@@ -196,8 +238,9 @@ the ATHENA Hub source tree installed on this PC. The runtime is in runtime\\.
 
 START
   Double-click "ATHENA Node.exe". It sits in the notification area, starts the
-  agent without a console window, and opens the local panel. Use its tray menu
-  to open, restart, open the data folder, or quit.
+  agent without a console window, and opens its own embedded WebView2 window.
+  Closing or minimising that window hides it to the tray; the agent continues.
+  Use the tray menu to open, restart, open the data folder, or quit.
 
 PAIR WITH A HUB
   1. Start ATHENA Node on this PC.

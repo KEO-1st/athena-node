@@ -110,7 +110,7 @@ export function parseInstalledApps(text) {
   const names = [...new Set(rows.map((row) => row?.name || row?.DisplayName).filter(Boolean).map(String))].sort((a, b) => a.localeCompare(b));
   return {
     count: names.length,
-    sample: names.slice(0, 60),
+    sample: names.slice(0, 250),
   };
 }
 

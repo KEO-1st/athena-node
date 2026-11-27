@@ -72,6 +72,8 @@
     color: var(--dim); padding: 10px 13px 11px; cursor: pointer;
     font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: .2em; text-transform: uppercase;
   }
+  .tabs { scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
   .tabs button:hover { color: var(--text); }
   .tabs button[aria-selected="true"] { color: var(--gold-hi); border-bottom-color: var(--gold); }
   main { min-height: 0; overflow: hidden; padding: 16px 22px; }
@@ -235,16 +237,80 @@
   .chip { border-radius: 3px; }
   @media (prefers-reduced-motion: reduce) { .pane.active { animation: none; } }
 
+  /* ── dense management surface: performance, processes, software ─────── */
+  .identity-card { grid-template-columns: 108px minmax(0, 1fr); min-height: 0; }
+  .sigil { width: 108px; }
+  .sigil .core { inset: 32px; }
+  .metric-grid { margin-top: 0; }
+  .metric b { font-size: 12px; }
+  .process-head {
+    display: grid; grid-template-columns: minmax(0, 1fr) 78px 70px 82px 54px; gap: 12px;
+    padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--dim);
+    font-family: Consolas, ui-monospace, monospace; font-size: 8px; letter-spacing: .16em;
+  }
+  .process-list { margin-top: 0; max-height: calc(100vh - 310px); overflow: auto; }
+  .process-row { grid-template-columns: minmax(0, 1fr) 78px 70px 82px 54px; }
+  .process-row .bar { display: none; }
+  .process-row .kill {
+    appearance: none; border: 1px solid rgba(255,125,88,.25); border-radius: 4px; background: transparent;
+    color: var(--bad); font-family: Consolas, ui-monospace, monospace; font-size: 7.5px;
+    letter-spacing: .12em; padding: 4px 5px; cursor: pointer;
+  }
+  .process-row .kill:hover { background: rgba(255,125,88,.1); border-color: var(--bad); }
+  .perf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .perf-grid .wide { grid-column: 1 / -1; }
+  .perf-chart-wrap { position: relative; }
+  #chart-load { display: block; width: 100%; height: 190px; border: 1px solid var(--line-soft); border-radius: 8px; background: rgba(0,0,0,.18); }
+  .perf-legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 10px; }
+  .perf-legend span { display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-family: Consolas, ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; }
+  .perf-legend b { color: var(--text); font-weight: 500; margin-left: 2px; }
+  .perf-legend i { width: 14px; height: 2px; display: inline-block; }
+  .perf-legend i.cpu { background: var(--gold-hi); }
+  .perf-legend i.gpu { background: var(--ok); }
+  .perf-legend i.ram { background: #7d8fd8; }
+  .perf-value { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 0; }
+  .perf-value strong { font-size: 32px; font-weight: 300; letter-spacing: .02em; line-height: 1; }
+  .net-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+  .net-values div { border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px; }
+  .net-values b { display: block; margin-top: 5px; font-size: 17px; font-weight: 400; }
+  .perf-disks { display: grid; gap: 8px; margin-top: 12px; }
+  .perf-disk { display: grid; gap: 5px; }
+  .perf-disk div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+  .perf-disk .meter { margin-top: 0; }
+  .advice-list { display: grid; gap: 8px; }
+  .advice { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
+  .advice .level { font-family: Consolas, ui-monospace, monospace; font-size: 8px; letter-spacing: .12em; }
+  .advice.warn .level { color: var(--warn); }
+  .advice.bad .level { color: var(--bad); }
+  .advice.ok .level { color: var(--ok); }
+  .advice b { display: block; font-size: 12px; font-weight: 500; }
+  .advice p { margin: 3px 0 0; color: var(--dim); font-size: 11px; line-height: 1.5; }
+  .advice-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 4px; }
+  .software-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+  .software-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 11.5px; }
+  .software-row span { color: var(--dim); font-family: Consolas, ui-monospace, monospace; font-size: 8px; white-space: nowrap; }
+
+  @media (max-width: 1100px) {
+    .tabs button { padding: 9px 9px 10px; letter-spacing: .12em; }
+    .perf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   @media (max-width: 860px) {
-    .identity-card { grid-template-columns: 108px minmax(0, 1fr); }
-    .sigil { width: 108px; }
-    .sigil .core { inset: 32px; }
     .overview, .lower { grid-template-columns: 1fr; }
     .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .perf-grid { grid-template-columns: 1fr; }
+    .software-list { grid-template-columns: 1fr; }
+    .process-list { max-height: none; }
+    .tabs { overflow-x: auto; }
   }
   @media (max-width: 620px) {
-    .top { padding: 12px 14px 8px; }
-    .tabs { padding: 0 14px; overflow-x: auto; }
+    .top { padding: 12px 14px 8px; align-items: flex-start; }
+    .brand h1 { font-size: 13px; letter-spacing: .18em; white-space: nowrap; }
+    .brand p { font-size: 7.5px; }
+    .mark { width: 32px; height: 32px; }
+    .mark svg { width: 25px; height: 25px; }
+    .status { padding: 7px 9px; font-size: 8px; }
+    .tabs { padding: 0 14px; overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
     .tabs button { padding: 9px 9px 10px; }
     main { padding: 12px 14px; }
     footer { padding: 9px 14px 12px; }
@@ -284,8 +350,11 @@
 
 <nav class="tabs" role="tablist" aria-label="ATHENA Node sections">
   <button role="tab" aria-selected="true" data-tab="overview">OVERVIEW</button>
-  <button role="tab" aria-selected="false" data-tab="machine">MACHINE</button>
   <button role="tab" aria-selected="false" data-tab="processes">PROCESSES</button>
+  <button role="tab" aria-selected="false" data-tab="performance">PERFORMANCE</button>
+  <button role="tab" aria-selected="false" data-tab="optimization">OPTIMIZATION</button>
+  <button role="tab" aria-selected="false" data-tab="software">SOFTWARE</button>
+  <button role="tab" aria-selected="false" data-tab="machine">SYSTEM</button>
   <button role="tab" aria-selected="false" data-tab="permissions">PERMISSIONS</button>
   <button role="tab" aria-selected="false" data-tab="diagnostics">DIAGNOSTICS</button>
 </nav>
@@ -327,6 +396,7 @@
           <div class="hw-row"><span>Address</span><b id="node-address">—</b></div>
           <div class="hw-row"><span>Version</span><b id="node-version">__VERSION__</b></div>
           <div class="hw-row"><span>Protocol</span><b id="node-protocol">—</b></div>
+          <div class="hw-row"><span>Network</span><b id="ov-network">—</b></div>
         </div>
       </article>
     </div>
@@ -352,6 +422,98 @@
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v9m0 0 3-3m-3 3L9 9M5 17v2h14v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <p><b>ATHENA Node will continue running in the background.</b> You can reopen it from the system tray.</p>
         </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="pane" data-pane="performance">
+    <div class="perf-grid">
+      <article class="card wide perf-live">
+        <div class="section-head">
+          <div><h2>Live machine load</h2><p class="micro dim">MEASURED ON THIS PC · 1 S SAMPLE</p></div>
+          <p class="micro dim" id="perf-clock">—</p>
+        </div>
+        <div class="perf-chart-wrap">
+          <canvas id="chart-load" aria-label="CPU, GPU and memory use over the last two minutes"></canvas>
+          <div class="perf-legend">
+            <span><i class="cpu"></i>CPU <b id="p-cpu">—</b></span>
+            <span><i class="gpu"></i>GPU <b id="p-gpu">—</b></span>
+            <span><i class="ram"></i>MEMORY <b id="p-ram">—</b></span>
+          </div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Processor</h2><p class="micro dim" id="perf-cpu-model">—</p></div>
+        <p class="perf-value"><strong id="perf-cpu">—</strong><span class="micro dim">% UTILIZATION</span></p>
+        <div class="meter"><i id="perf-cpu-meter"></i></div>
+        <p class="micro dim" id="perf-cores">—</p>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Memory</h2><p class="micro dim" id="perf-ram-label">—</p></div>
+        <p class="perf-value"><strong id="perf-ram">—</strong><span class="micro dim">% USED</span></p>
+        <div class="meter"><i id="perf-ram-meter"></i></div>
+        <p class="micro dim" id="perf-ram-detail">—</p>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Graphics</h2><p class="micro dim" id="perf-gpu-model">—</p></div>
+        <p class="perf-value"><strong id="perf-gpu">—</strong><span class="micro dim">% UTILIZATION</span></p>
+        <div class="meter"><i id="perf-gpu-meter"></i></div>
+        <p class="micro dim" id="perf-gpu-detail">—</p>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Network</h2><p class="micro dim">MEASURED THROUGHPUT</p></div>
+        <div class="net-values">
+          <div><span class="micro dim">RECEIVE</span><b id="perf-net-rx">—</b></div>
+          <div><span class="micro dim">SEND</span><b id="perf-net-tx">—</b></div>
+        </div>
+        <p class="micro dim" id="perf-net-total" style="margin-top:10px">—</p>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Storage</h2><p class="micro dim">CAPACITY</p></div>
+        <div id="perf-disks" class="perf-disks"><p class="micro dim">Reading disks…</p></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="pane" data-pane="optimization">
+    <div class="section-grid">
+      <article class="card wide">
+        <div class="section-head"><h2>What this machine is telling us</h2><p class="micro dim">DERIVED FROM LIVE MEASUREMENTS</p></div>
+        <p class="micro dim" style="line-height:1.7;margin:0 0 12px">Recommendations appear only when a measured value crosses a threshold. ATHENA does not invent a bottleneck, throttle the GPU, limit RAM or promise FPS gains. Every action below is a real Windows action you confirm.</p>
+        <div id="optimization-list" class="advice-list"><p class="micro dim">Waiting for a status sample…</p></div>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Enforceable controls</h2><p class="micro dim">NOT PLACEHOLDERS</p></div>
+        <div class="advice-actions">
+          <button class="btn" data-goto="processes">OPEN PROCESSES</button>
+          <button class="btn" data-goto="performance">OPEN PERFORMANCE</button>
+          <button class="btn" data-goto="software">OPEN SOFTWARE</button>
+          <button class="btn" id="optimize-refresh">RESAMPLE NOW</button>
+        </div>
+        <p class="micro dim" style="line-height:1.7;margin:12px 0 0">There is no fake “boost” switch. Closing a process is confirmed and targets one PID. Session cleanup and power plans are not changed silently.</p>
+      </article>
+      <article class="card">
+        <div class="section-head"><h2>Health thresholds used</h2><p class="micro dim">TRANSPARENT RULES</p></div>
+        <div class="hw-rows">
+          <div class="hw-row"><span>CPU</span><b>warn above 85% for a sample</b></div>
+          <div class="hw-row"><span>Memory</span><b>warn above 88% used</b></div>
+          <div class="hw-row"><span>GPU temp</span><b>warn at 80 °C or above</b></div>
+          <div class="hw-row"><span>Disk</span><b>warn under 10% free</b></div>
+          <div class="hw-row"><span>Network</span><b>shown, never called a fault</b></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="pane" data-pane="software">
+    <div class="section-grid">
+      <article class="card wide">
+        <div class="section-head">
+          <div><h2>Installed software</h2><p class="micro dim" id="software-count">READING…</p></div>
+          <input id="software-search" type="text" placeholder="Filter by name…" aria-label="Filter installed software" style="max-width:260px" />
+        </div>
+        <p class="micro dim" style="line-height:1.7;margin:0 0 10px">Measured from Windows uninstall entries on this PC. This is an inventory, not a download catalogue; ATHENA does not remove software from this panel.</p>
+        <div id="software-list" class="software-list"><p class="micro dim">Reading installed software…</p></div>
       </article>
     </div>
   </section>
@@ -408,7 +570,8 @@
     <div class="section-grid">
       <article class="card wide">
         <div class="section-head"><h2>Running processes</h2><p class="micro dim" id="process-summary">READING…</p></div>
-        <p class="micro dim" style="line-height:1.7;margin:0 0 10px">Measured from the live process table on this machine, grouped by image name and ranked by resident memory. A value the machine cannot report stays unavailable. This panel refreshes only while it is open.</p>
+        <p class="micro dim" style="line-height:1.7;margin:0 0 10px">Measured from the live process table, ranked by resident memory. CPU comes from Windows performance counters and stays unavailable when they do not report it. Ending a process asks for confirmation and targets exactly that PID.</p>
+        <div class="process-head"><span>PROCESS</span><span>MEMORY</span><span>CPU</span><span>PID</span><span></span></div>
         <div class="process-list" id="process-list"><p class="micro dim">Reading processes…</p></div>
         <div class="actions" style="margin-top:12px"><button class="btn" id="process-refresh">REFRESH NOW</button></div>
       </article>
@@ -530,21 +693,38 @@
   let activeTab = "overview";
   let lastRender = 0;
   let processPoll = null;
+  let perfPoll = null;
+  const perfHistory = { cpu: [], gpu: [], ram: [], at: [] };
+  const HISTORY = 120;
+
+  function selectTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll(".tabs button").forEach((item) => item.setAttribute("aria-selected", String(item.dataset.tab === tab)));
+    document.querySelectorAll(".pane").forEach((pane) => pane.classList.toggle("active", pane.dataset.pane === tab));
+    if (tab === "diagnostics") void loadDiagnostics();
+    if (tab === "processes") {
+      void loadProcesses();
+      if (!processPoll) processPoll = setInterval(() => { if (document.visibilityState !== "hidden" && activeTab === "processes") void loadProcesses(); }, 6000);
+    } else if (processPoll) {
+      clearInterval(processPoll);
+      processPoll = null;
+    }
+    if (tab === "performance") {
+      void loadPerf();
+      if (!perfPoll) perfPoll = setInterval(() => { if (document.visibilityState !== "hidden" && activeTab === "performance") void loadPerf(); }, 1000);
+    } else if (perfPoll) {
+      clearInterval(perfPoll);
+      perfPoll = null;
+    }
+    if (tab === "optimization" && status) renderOptimization(status);
+    if (tab === "software" && status) renderSoftware(status);
+  }
 
   document.querySelectorAll(".tabs button").forEach((button) => {
-    button.onclick = () => {
-      activeTab = button.dataset.tab;
-      document.querySelectorAll(".tabs button").forEach((item) => item.setAttribute("aria-selected", String(item === button)));
-      document.querySelectorAll(".pane").forEach((pane) => pane.classList.toggle("active", pane.dataset.pane === activeTab));
-      if (activeTab === "diagnostics") void loadDiagnostics();
-      if (activeTab === "processes") {
-        void loadProcesses();
-        if (!processPoll) processPoll = setInterval(() => { if (document.visibilityState !== "hidden" && activeTab === "processes") void loadProcesses(); }, 6000);
-      } else if (processPoll) {
-        clearInterval(processPoll);
-        processPoll = null;
-      }
-    };
+    button.onclick = () => selectTab(button.dataset.tab);
+  });
+  document.querySelectorAll("[data-goto]").forEach((button) => {
+    button.onclick = () => selectTab(button.dataset.goto);
   });
 
   async function loadProcesses() {
@@ -555,16 +735,16 @@
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       const processes = Array.isArray(json.processes) ? json.processes : [];
-      const peak = Math.max(1, ...processes.map((process) => Number(process.memMb) || 0));
       $("process-summary").textContent = `${json.total ?? processes.length} PROCESSES · TOP ${processes.length} BY MEMORY`;
       list.innerHTML = processes.length
         ? processes
             .map(
               (process) => `<div class="process-row">
-                <b>${esc(process.name || "process")}</b>
+                <b title="${esc(process.name || "process")}">${esc(process.name || "process")}</b>
                 <span>${Math.round(Number(process.memMb) || 0)} MB</span>
-                <span>${process.pid ? `PID ${process.pid}` : ""}${process.count > 1 ? ` · ×${process.count}` : ""}</span>
-                <span class="bar"><i style="width:${Math.round(((Number(process.memMb) || 0) / peak) * 100)}%"></i></span>
+                <span>${process.cpuPct == null ? "—" : `${Number(process.cpuPct).toFixed(1)}%`}</span>
+                <span>${process.pid ? process.pid : "—"}${process.count > 1 ? ` · ×${process.count}` : ""}</span>
+                ${process.pid ? `<button class="kill" type="button" data-kill="${process.pid}" data-name="${esc(process.name || "process")}">END</button>` : "<span></span>"}
               </div>`
             )
             .join("")
@@ -575,6 +755,158 @@
     }
   }
   $("process-refresh").onclick = () => void loadProcesses();
+  $("process-list").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-kill]");
+    if (!button) return;
+    const pid = Number(button.dataset.kill);
+    const name = String(button.dataset.name || "process");
+    if (!confirm(`End ${name} (PID ${pid})? Unsaved work in that process will be lost.`)) return;
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/local/process-kill", {
+        method: "POST",
+        headers: await localHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ pid }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      toast(`${name} ended`);
+      await loadProcesses();
+    } catch (error) {
+      toast(String(error.message || error));
+      button.disabled = false;
+    }
+  });
+
+  function pct(value) {
+    return value == null || !Number.isFinite(Number(value)) ? null : Math.max(0, Math.min(100, Number(value)));
+  }
+
+  function drawPerf() {
+    const canvas = $("chart-load");
+    if (!canvas) return;
+    const width = Math.max(300, canvas.clientWidth || 640);
+    const height = 190;
+    const ratio = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+    }
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.strokeStyle = "rgba(255,255,255,.055)";
+    ctx.fillStyle = "rgba(255,255,255,.28)";
+    ctx.font = "8px Consolas, monospace";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i += 1) {
+      const y = 10 + ((height - 28) * i) / 4;
+      ctx.beginPath(); ctx.moveTo(34, y); ctx.lineTo(width - 8, y); ctx.stroke();
+      ctx.fillText(String(100 - i * 25), 11, y + 3);
+    }
+    const series = [
+      { values: perfHistory.cpu, color: "#f4d79e" },
+      { values: perfHistory.gpu, color: "#63dda6" },
+      { values: perfHistory.ram, color: "#7d8fd8" },
+    ];
+    for (const line of series) {
+      if (line.values.length < 2) continue;
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      line.values.forEach((value, index) => {
+        const x = 34 + ((width - 42) * index) / (HISTORY - 1);
+        const y = 10 + (height - 28) * (1 - Math.max(0, Math.min(100, Number(value) || 0)) / 100);
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    if (!perfHistory.cpu.length) {
+      ctx.fillStyle = "rgba(255,255,255,.3)";
+      ctx.fillText("Collecting live samples…", 40, height / 2);
+    }
+  }
+
+  function pushHistory(key, value) {
+    if (value == null || !Number.isFinite(Number(value))) return;
+    perfHistory[key].push(Number(value));
+    if (perfHistory[key].length > HISTORY) perfHistory[key].shift();
+  }
+
+  async function loadPerf() {
+    try {
+      const res = await fetch("/api/local/perf", { headers: await localHeaders(), cache: "no-store" });
+      const sample = await res.json();
+      if (!res.ok) throw new Error(sample.error || `HTTP ${res.status}`);
+      const cpu = pct(sample.cpu?.utilizationPct);
+      const gpu = pct(sample.gpu?.util);
+      const ram = sample.memory?.availablePct == null ? null : pct(100 - sample.memory.availablePct);
+      pushHistory("cpu", cpu);
+      pushHistory("gpu", gpu);
+      pushHistory("ram", ram);
+      $("p-cpu").textContent = cpu == null ? "—" : `${Math.round(cpu)}%`;
+      $("p-gpu").textContent = gpu == null ? "—" : `${Math.round(gpu)}%`;
+      $("p-ram").textContent = ram == null ? "—" : `${Math.round(ram)}%`;
+      $("perf-clock").textContent = new Date(sample.at || Date.now()).toLocaleTimeString();
+      $("perf-cpu").textContent = cpu == null ? "—" : String(Math.round(cpu));
+      $("perf-cpu-meter").style.width = `${cpu == null ? 0 : cpu}%`;
+      $("perf-cores").textContent = `${sample.cpu?.cores ?? "?"} logical processors`;
+      $("perf-ram").textContent = ram == null ? "—" : String(Math.round(ram));
+      $("perf-ram-meter").style.width = `${ram == null ? 0 : ram}%`;
+      $("perf-ram-label").textContent = sample.memory?.availablePct == null ? "—" : `${sample.memory.availablePct}% free`;
+      $("perf-ram-detail").textContent = sample.memory ? `${sample.memory.freeGb ?? "?"} GB free of ${sample.memory.totalGb ?? "?"} GB` : "unavailable";
+      $("perf-gpu").textContent = gpu == null ? "—" : String(Math.round(gpu));
+      $("perf-gpu-meter").style.width = `${gpu == null ? 0 : gpu}%`;
+      $("perf-gpu-model").textContent = sample.gpu?.name || "No supported GPU telemetry";
+      $("perf-gpu-detail").textContent = sample.gpu
+        ? [sample.gpu.vramGb != null ? `${sample.gpu.vramGb} GB VRAM` : "", sample.gpu.temp != null ? `${sample.gpu.temp} °C` : "temperature unavailable", sample.gpu.driver || ""].filter(Boolean).join(" · ")
+        : "unavailable";
+      $("perf-net-rx").textContent = sample.network?.rxMbps == null ? "—" : `${sample.network.rxMbps} Mb/s`;
+      $("perf-net-tx").textContent = sample.network?.txMbps == null ? "—" : `${sample.network.txMbps} Mb/s`;
+      $("perf-net-total").textContent = sample.network ? `${sample.network.rxGb} GB received · ${sample.network.txGb} GB sent since boot` : "Network counters unavailable.";
+      drawPerf();
+    } catch {
+      $("perf-clock").textContent = "TELEMETRY UNAVAILABLE";
+    }
+  }
+
+  function renderOptimization(s) {
+    const box = $("optimization-list");
+    if (!box) return;
+    const cpu = Number(s.hardware?.cpu?.utilizationPct);
+    const ramUsed = s.hardware?.memory?.availablePct == null ? null : 100 - Number(s.hardware.memory.availablePct);
+    const gpu = s.hardware?.gpu || s.gpu || {};
+    const disks = Array.isArray(s.hardware?.disks) ? s.hardware.disks : [];
+    const rows = [];
+    if (Number.isFinite(cpu) && cpu >= 85) rows.push({ level: "warn", title: `CPU is at ${Math.round(cpu)}%`, text: "Something is using most of the processor. Open Processes to see which PID is responsible before ending anything.", tab: "processes" });
+    if (ramUsed != null && Number.isFinite(ramUsed) && ramUsed >= 88) rows.push({ level: "warn", title: `Memory is ${Math.round(ramUsed)}% used`, text: "Close what you are not using. ATHENA will not fake a RAM limit or clear another app's memory.", tab: "processes" });
+    if (gpu.temp != null && Number(gpu.temp) >= 80) rows.push({ level: "bad", title: `GPU is at ${gpu.temp} °C`, text: "Reduce render or game load and check airflow. No fan or power limit is changed by ATHENA.", tab: "performance" });
+    for (const disk of disks) {
+      const total = Number(disk.totalGb);
+      const free = Number(disk.freeGb);
+      if (Number.isFinite(total) && total > 0 && Number.isFinite(free) && free / total < 0.1) {
+        rows.push({ level: "warn", title: `${disk.id} has ${free} GB free`, text: "Free space is below 10%. Remove files you own; ATHENA does not delete storage automatically.", tab: "performance" });
+      }
+    }
+    if (!rows.length) rows.push({ level: "ok", title: "No measured threshold is crossed", text: "CPU, memory, GPU temperature and free disk space are inside the stated ranges. That is not a benchmark or an FPS guarantee.", tab: "performance" });
+    box.innerHTML = rows.map((row) => `<div class="advice ${row.level}"><span class="level">${row.level === "ok" ? "CLEAR" : row.level === "bad" ? "HIGH" : "WATCH"}</span><div><b>${esc(row.title)}</b><p>${esc(row.text)}</p></div><button class="btn" data-goto="${row.tab}">${row.tab === "processes" ? "PROCESSES" : "PERFORMANCE"}</button></div>`).join("");
+    box.querySelectorAll("[data-goto]").forEach((button) => { button.onclick = () => selectTab(button.dataset.goto); });
+  }
+
+  function renderSoftware(s) {
+    const box = $("software-list");
+    if (!box) return;
+    const apps = s.hardware?.installedApps;
+    const query = String($("software-search")?.value || "").trim().toLowerCase();
+    const names = (apps?.sample || []).filter((name) => !query || String(name).toLowerCase().includes(query));
+    $("software-count").textContent = apps?.count == null ? "UNAVAILABLE" : `${apps.count} INSTALLED${query ? ` · ${names.length} MATCH` : ""}${apps.count > (apps.sample?.length || 0) ? ` · SHOWING ${apps.sample.length}` : ""}`;
+    box.innerHTML = names.length
+      ? names.map((name) => `<div class="software-row"><b>${esc(name)}</b><span>REGISTERED</span></div>`).join("")
+      : `<p class="micro dim">${apps ? "No installed software matched that filter." : "The Windows software inventory is unavailable."}</p>`;
+  }
+
+  $("software-search")?.addEventListener("input", () => { if (status) renderSoftware(status); });
+  $("optimize-refresh")?.addEventListener("click", () => { void poll(); toast("Resampling…"); });
 
   async function localHeaders(extra = {}) {
     if (!localToken) {
@@ -646,6 +978,13 @@
     $("m-disk").textContent = disks && disks.length ? disks.map((disk) => `${disk.id} ${disk.freeGb ?? "?"} free`).join(" · ") : "unavailable";
     $("m-display").textContent = displays && displays.length ? displays.map((display) => `${display.width || "?"}×${display.height || "?"}${display.refreshHz ? ` @${display.refreshHz}Hz` : ""}`).join(" · ") : "unavailable";
     $("m-audio").textContent = audio ? `${audio.inputs?.length ?? 0} in · ${audio.outputs?.length ?? 0} out` : "unavailable";
+    $("ov-network").textContent = s.network
+      ? `${s.network.rxMbps == null ? "—" : s.network.rxMbps} Mb/s down · ${s.network.txMbps == null ? "—" : s.network.txMbps} Mb/s up`
+      : "unavailable";
+    $("perf-cpu-model").textContent = cpu.model || "PROCESSOR";
+    $("perf-disks").innerHTML = disks && disks.length
+      ? disks.map((disk) => `<div class="perf-disk"><div><b>${esc(disk.id)}</b><span>${disk.freeGb ?? "?"} free of ${disk.totalGb ?? "?"} GB</span></div><div class="meter"><i style="width:${disk.usedPct == null ? 0 : Math.max(0, Math.min(100, disk.usedPct))}%"></i></div></div>`).join("")
+      : `<p class="micro dim">Disk information unavailable.</p>`;
 
     $("hw-cpu").textContent = cpu.model || "unavailable";
     $("hw-cpu-use").textContent = cpu.utilizationPct != null ? `${cpu.utilizationPct}% · ${cpu.cores ?? "?"} cores` : `${cpu.cores ?? "?"} cores · utilization unavailable`;
@@ -702,6 +1041,10 @@
     if ($("f-codereq") && document.activeElement !== $("f-codereq")) $("f-codereq").checked = s.capabilities?.pairCodeRequired !== false;
     if ($("f-comfy") && document.activeElement !== $("f-comfy")) $("f-comfy").value = s.services?.comfy?.dir || "";
     if ($("f-comfyport") && document.activeElement !== $("f-comfyport")) $("f-comfyport").value = s.services?.comfy?.port || 8188;
+
+    renderOptimization(s);
+    renderSoftware(s);
+    if (activeTab === "performance") drawPerf();
   }
 
   async function poll() {
@@ -854,6 +1197,13 @@
   function hidePanel() {
     localStorage.setItem("athena.node.backgroundSeen", "1");
     $("bg-modal").classList.remove("open");
+    /* The desktop window owns its lifecycle. Ask it to hide to the tray;
+       window.close() would close the embedded browser page and leave the
+       launcher guessing about the window. */
+    if (window.chrome?.webview) {
+      window.chrome.webview.postMessage({ type: "hide-panel" });
+      return;
+    }
     window.close();
     setTimeout(() => toast("You can close this window; the Node stays in the tray."), 200);
   }
