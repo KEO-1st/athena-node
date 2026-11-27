@@ -114,6 +114,16 @@
   .metric { border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(255,255,255,.017); padding: 11px 12px; min-width: 0; }
   .metric span { display: block; color: var(--dim); }
   .metric b { display: block; margin-top: 6px; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter { height: 3px; margin-top: 9px; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--gold), var(--gold-hi)); transition: width .4s ease; }
+  .meter.off i { background: rgba(255,255,255,.18); }
+  .process-list { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+  .process-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 74px; gap: 12px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+  .process-row:last-child { border-bottom: 0; }
+  .process-row b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .process-row span { color: var(--dim); font-family: Consolas, ui-monospace, monospace; font-size: 10px; letter-spacing: .08em; text-align: right; }
+  .process-row .bar { grid-column: 1 / -1; height: 2px; border-radius: 2px; background: rgba(255,255,255,.06); overflow: hidden; }
+  .process-row .bar i { display: block; height: 100%; background: var(--gold); opacity: .55; }
   .lower { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 14px; margin-top: 14px; }
   .service-row, .kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
   .service-row:last-child, .kv:last-child { border-bottom: 0; }
@@ -200,6 +210,31 @@
   .modal-card h2 { margin: 0 0 10px; font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: var(--gold); }
   .modal-card p { color: var(--dim); font-size: 12px; line-height: 1.65; }
   .modal-card .actions { justify-content: flex-end; margin-top: 16px; }
+  /* ── ATHENA design system: one spacing rhythm, one surface rule ─────── */
+  .tabs { gap: 6px; padding: 6px 22px 0; border-bottom: 1px solid var(--line-soft); }
+  .tabs button {
+    border: 1px solid transparent; border-bottom: 1px solid transparent; border-radius: 8px 8px 0 0;
+    padding: 9px 13px 10px; letter-spacing: .18em; transition: color .18s, background .18s, border-color .18s;
+  }
+  .tabs button:hover { background: rgba(255,255,255,.035); border-color: var(--line-soft); }
+  .tabs button[aria-selected="true"] {
+    color: var(--gold-hi); border-color: var(--line-soft); border-bottom-color: transparent;
+    background: linear-gradient(180deg, rgba(216,169,78,.12), rgba(216,169,78,.02));
+  }
+  main { padding: 18px 22px; }
+  .pane.active { animation: paneIn .24s cubic-bezier(.22,.85,.25,1) both; }
+  @keyframes paneIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  .card { border-radius: 11px; transition: border-color .2s, background .2s; }
+  .card:hover { border-color: rgba(216,169,78,.22); }
+  .card h2 { letter-spacing: .22em; }
+  .card h3 { letter-spacing: .04em; }
+  .section-head { margin-bottom: 12px; }
+  .btn:focus-visible, input:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+  .status { border-radius: 999px; }
+  .metric { border-radius: 8px; }
+  .chip { border-radius: 3px; }
+  @media (prefers-reduced-motion: reduce) { .pane.active { animation: none; } }
+
   @media (max-width: 860px) {
     .identity-card { grid-template-columns: 108px minmax(0, 1fr); }
     .sigil { width: 108px; }
@@ -250,6 +285,7 @@
 <nav class="tabs" role="tablist" aria-label="ATHENA Node sections">
   <button role="tab" aria-selected="true" data-tab="overview">OVERVIEW</button>
   <button role="tab" aria-selected="false" data-tab="machine">MACHINE</button>
+  <button role="tab" aria-selected="false" data-tab="processes">PROCESSES</button>
   <button role="tab" aria-selected="false" data-tab="permissions">PERMISSIONS</button>
   <button role="tab" aria-selected="false" data-tab="diagnostics">DIAGNOSTICS</button>
 </nav>
@@ -296,8 +332,8 @@
     </div>
 
     <div class="metric-grid" aria-label="Machine summary">
-      <div class="metric"><span class="micro">CPU</span><b id="m-cpu">—</b></div>
-      <div class="metric"><span class="micro">MEMORY FREE</span><b id="m-memory">—</b></div>
+      <div class="metric"><span class="micro">CPU</span><b id="m-cpu">—</b><div class="meter" id="meter-cpu"><i></i></div></div>
+      <div class="metric"><span class="micro">MEMORY FREE</span><b id="m-memory">—</b><div class="meter" id="meter-memory"><i></i></div></div>
       <div class="metric"><span class="micro">GPU</span><b id="m-gpu">—</b></div>
       <div class="metric"><span class="micro">STORAGE</span><b id="m-disk">—</b></div>
       <div class="metric"><span class="micro">DISPLAY</span><b id="m-display">—</b></div>
@@ -364,6 +400,17 @@
         <div class="section-head"><h2>Installed applications</h2><p class="micro dim" id="hw-apps-count">—</p></div>
         <div class="apps-sample" id="hw-apps"><span>Reading installed applications…</span></div>
         <p class="micro dim" style="margin:10px 0 0;line-height:1.6">The list is measured from Windows uninstall entries. A missing value is shown as unavailable, never as zero.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="pane" data-pane="processes">
+    <div class="section-grid">
+      <article class="card wide">
+        <div class="section-head"><h2>Running processes</h2><p class="micro dim" id="process-summary">READING…</p></div>
+        <p class="micro dim" style="line-height:1.7;margin:0 0 10px">Measured from the live process table on this machine, grouped by image name and ranked by resident memory. A value the machine cannot report stays unavailable. This panel refreshes only while it is open.</p>
+        <div class="process-list" id="process-list"><p class="micro dim">Reading processes…</p></div>
+        <div class="actions" style="margin-top:12px"><button class="btn" id="process-refresh">REFRESH NOW</button></div>
       </article>
     </div>
   </section>
@@ -482,6 +529,7 @@
   let localToken = "";
   let activeTab = "overview";
   let lastRender = 0;
+  let processPoll = null;
 
   document.querySelectorAll(".tabs button").forEach((button) => {
     button.onclick = () => {
@@ -489,8 +537,44 @@
       document.querySelectorAll(".tabs button").forEach((item) => item.setAttribute("aria-selected", String(item === button)));
       document.querySelectorAll(".pane").forEach((pane) => pane.classList.toggle("active", pane.dataset.pane === activeTab));
       if (activeTab === "diagnostics") void loadDiagnostics();
+      if (activeTab === "processes") {
+        void loadProcesses();
+        if (!processPoll) processPoll = setInterval(() => { if (document.visibilityState !== "hidden" && activeTab === "processes") void loadProcesses(); }, 6000);
+      } else if (processPoll) {
+        clearInterval(processPoll);
+        processPoll = null;
+      }
     };
   });
+
+  async function loadProcesses() {
+    const list = $("process-list");
+    if (!list) return;
+    try {
+      const res = await fetch("/api/local/processes", { cache: "no-store", headers: await localHeaders() });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      const processes = Array.isArray(json.processes) ? json.processes : [];
+      const peak = Math.max(1, ...processes.map((process) => Number(process.memMb) || 0));
+      $("process-summary").textContent = `${json.total ?? processes.length} PROCESSES · TOP ${processes.length} BY MEMORY`;
+      list.innerHTML = processes.length
+        ? processes
+            .map(
+              (process) => `<div class="process-row">
+                <b>${esc(process.name || "process")}</b>
+                <span>${Math.round(Number(process.memMb) || 0)} MB</span>
+                <span>${process.pid ? `PID ${process.pid}` : ""}${process.count > 1 ? ` · ×${process.count}` : ""}</span>
+                <span class="bar"><i style="width:${Math.round(((Number(process.memMb) || 0) / peak) * 100)}%"></i></span>
+              </div>`
+            )
+            .join("")
+        : `<p class="micro dim">The machine returned an empty process list.</p>`;
+    } catch (error) {
+      list.innerHTML = `<p class="micro dim">Could not read processes: ${esc(String(error.message || error))}</p>`;
+      $("process-summary").textContent = "UNAVAILABLE";
+    }
+  }
+  $("process-refresh").onclick = () => void loadProcesses();
 
   async function localHeaders(extra = {}) {
     if (!localToken) {
@@ -511,6 +595,15 @@
   function displayName(value) {
     const clean = String(value || "Display").replace(/^\\\\.\\/, "").replace(/^DISPLAY(\d+)$/i, "Display $1");
     return clean || "Display";
+  }
+
+  function setMeter(element, value) {
+    if (!element) return;
+    const bar = element.firstElementChild;
+    const number = Number(value);
+    const known = value != null && Number.isFinite(number);
+    element.classList.toggle("off", !known);
+    if (bar) bar.style.width = known ? `${Math.min(100, Math.max(0, number))}%` : "0%";
   }
 
   function uptime(seconds) {
@@ -547,6 +640,8 @@
 
     $("m-cpu").textContent = cpu.model ? `${cpu.model.split(" ").slice(0, 3).join(" ")}${cpu.utilizationPct != null ? ` · ${cpu.utilizationPct}%` : ""}` : "unavailable";
     $("m-memory").textContent = memory.freeGb != null && memory.totalGb != null ? `${memory.freeGb} / ${memory.totalGb} GB` : "unavailable";
+    setMeter($("meter-cpu"), cpu.utilizationPct);
+    setMeter($("meter-memory"), memory.availablePct != null ? memory.availablePct : null);
     $("m-gpu").textContent = gpu.name ? `${gpu.name}${gpu.util != null ? ` · ${gpu.util}%` : ""}` : "unavailable";
     $("m-disk").textContent = disks && disks.length ? disks.map((disk) => `${disk.id} ${disk.freeGb ?? "?"} free`).join(" · ") : "unavailable";
     $("m-display").textContent = displays && displays.length ? displays.map((display) => `${display.width || "?"}×${display.height || "?"}${display.refreshHz ? ` @${display.refreshHz}Hz` : ""}`).join(" · ") : "unavailable";

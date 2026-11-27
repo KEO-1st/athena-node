@@ -21,8 +21,24 @@ namespace AthenaNode
 {
     internal static class Program
     {
-        private const string LauncherMutex = "ATHENA.Node.Launcher.0_3";
-        private const string OpenPanelEvent = "ATHENA.Node.OpenPanel.0_3";
+        /* Production uses one fixed namespace. Tests (and portable side-by-side
+           installs) can set ATHENA_LAUNCHER_NAMESPACE so an unrelated running
+           Node does not look like a second instance of the same product. */
+        private static readonly string NamespaceSuffix = NamespaceFromEnvironment();
+        private static readonly string LauncherMutex = "ATHENA.Node.Launcher" + NamespaceSuffix;
+        private static readonly string OpenPanelEvent = "ATHENA.Node.OpenPanel" + NamespaceSuffix;
+
+        private static string NamespaceFromEnvironment()
+        {
+            string value = Environment.GetEnvironmentVariable("ATHENA_LAUNCHER_NAMESPACE");
+            if (String.IsNullOrEmpty(value)) return ".0_3";
+            var clean = new StringBuilder();
+            foreach (char c in value)
+            {
+                if (Char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-') clean.Append(c);
+            }
+            return clean.Length == 0 ? ".0_3" : "." + clean.ToString();
+        }
 
         [STAThread]
         private static void Main(string[] args)

@@ -336,6 +336,53 @@ async function processNames() {
   return new Set(rows.map((row) => path.basename(String(row.name)).toLowerCase()));
 }
 
+/** A launch stub can exit while the real app runs under another image name. */
+const PROCESS_ALIASES = {
+  "calc.exe": ["calc.exe", "calculatorapp.exe", "calculator.exe", "windowscalculator.exe"],
+  "explorer.exe": ["explorer.exe"],
+  "wt.exe": ["wt.exe", "windowsterminal.exe"],
+};
+
+function processCandidatesFor(file) {
+  const base = path.basename(String(file || "")).toLowerCase();
+  return PROCESS_ALIASES[base] || [base];
+}
+
+/**
+ * What Windows can actually see after a launch: no window, a created but
+ * minimised window, or a visible on-screen window. Never guessed: each answer
+ * comes from the real window list.
+ */
+async function inspectLaunchedWindow(processNamesWanted, titleHint = "") {
+  if (!hostAvailable() || !config.allowScreen) return { available: false, reason: "screen inspection is off on this node" };
+  const wanted = processNamesWanted.map((name) => String(name).toLowerCase());
+  const hint = String(titleHint || "").toLowerCase().replace(/\.exe$/i, "");
+  let last = null;
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    if (attempt) await new Promise((resolve) => setTimeout(resolve, 400));
+    const list = await readWindows().catch(() => null);
+    if (!list) continue;
+    const candidates = list.windows.filter((window) => {
+      const process = String(window.process || "").toLowerCase();
+      if (wanted.some((name) => process === name || process.includes(name.replace(/\.exe$/, "")))) return true;
+      return Boolean(hint && hint.length > 2 && String(window.title || "").toLowerCase().includes(hint));
+    });
+    if (!candidates.length) continue;
+    last = candidates.find((window) => !window.minimized && window.width > 0 && window.height > 0) || candidates[0];
+    if (!last.minimized && last.width > 0 && last.height > 0) break;
+  }
+  if (!last) return { available: true, created: false, visible: false, title: null };
+  return {
+    available: true,
+    created: true,
+    visible: Boolean(!last.minimized && last.width > 0 && last.height > 0),
+    minimized: Boolean(last.minimized),
+    title: last.title || null,
+    process: last.process || null,
+    handle: last.handle || null,
+  };
+}
+
 async function waitForAnyProcess(names, timeoutMs = 4500) {
   const wanted = [...new Set(names.map((name) => path.basename(String(name)).toLowerCase()).filter(Boolean))];
   const deadline = Date.now() + timeoutMs;
@@ -1403,7 +1450,15 @@ async function openProgram(args = {}) {
       return { ok: false, error: `The browser was asked to open ${requestedUrl} but no browser process appeared.`, url: requestedUrl };
     }
     const label = String(browserTarget ? path.basename(browserTarget) : seen).replace(/\.exe$/i, "");
-    return { ok: true, opened: `${label} · ${requestedUrl}`, url: requestedUrl, browser: label, verified: "process" };
+    const window = await inspectLaunchedWindow([seen], "");
+    return {
+      ok: true,
+      opened: `${label} · ${requestedUrl}`,
+      url: requestedUrl,
+      browser: label,
+      verified: window.visible ? "process+window" : "process",
+      window,
+    };
   }
 
   if (!raw) throw new Error("Which program? Give me a name like chrome or task manager, or a URL.");
@@ -1414,16 +1469,20 @@ async function openProgram(args = {}) {
     const exe = path.basename(target);
     const before = await processNames();
     launchDetached(target, extra);
-    const seen = await waitForAnyProcess([exe], 5000);
+    const candidates = processCandidatesFor(exe);
+    const seen = await waitForAnyProcess(candidates, 5000);
     if (!seen) {
       return { ok: false, error: `${exe} was started but no process appeared — it may be blocked or crashed.`, where: target };
     }
-    const already = before.has(exe.toLowerCase());
+    const already = candidates.some((name) => before.has(name));
+    const window = await inspectLaunchedWindow(candidates, raw);
     return {
       ok: true,
       opened: exe,
       where: target,
-      verified: already ? "already-running" : "process",
+      process: seen,
+      verified: window.visible ? "process+window" : "process",
+      window,
       note: already ? `${exe} was already running; the request went to that instance.` : undefined,
     };
   }
@@ -1432,9 +1491,12 @@ async function openProgram(args = {}) {
      then insist that a matching process exists. */
   if (IS_WIN) {
     launchDetached("cmd", ["/c", "start", "", raw, ...extra]);
-    const keys = programCandidates(raw).map((name) => `${name}.exe`);
+    const keys = programCandidates(raw).flatMap((name) => processCandidatesFor(`${name}.exe`));
     const seen = await waitForAnyProcess(keys, 4000);
-    if (seen) return { ok: true, opened: raw, verified: "process" };
+    if (seen) {
+      const window = await inspectLaunchedWindow(keys, raw);
+      return { ok: true, opened: raw, process: seen, verified: window.visible ? "process+window" : "process", window };
+    }
     return {
       ok: false,
       error: `Windows did not open anything called "${raw}". Try the full .exe path, or check the program name.`,
@@ -2027,6 +2089,18 @@ const server = http.createServer(async (req, res) => {
     if (route === "/api/local/status") {
       if (!localOk(req)) return send(403, { error: "Local panel token required." });
       return send(200, await status());
+    }
+
+    /* Process inspection is on demand: the overview poll must stay cheap,
+       and a full process list is the most expensive Windows query here. */
+    if (route === "/api/local/processes") {
+      if (!localOk(req)) return send(403, { error: "Local panel token required." });
+      const [processes, comfy, ollama] = await Promise.all([topProcesses(40), comfyStats(2000, 1500), ollamaInfo()]);
+      return send(200, {
+        ok: true,
+        ...processes,
+        services: { comfy: { ok: Boolean(comfy.ok) }, ollama: { ok: Boolean(ollama.ok) } },
+      });
     }
 
     if (route === "/api/local/config" && req.method === "POST") {

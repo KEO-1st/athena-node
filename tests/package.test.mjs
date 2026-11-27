@@ -17,8 +17,10 @@ test("the public package ships no CMD launchers or uninstall scripts", () => {
 
 test("the launcher is single-instance and reopens the existing panel", () => {
   const launcher = read("tools/node-launcher.cs");
-  assert.match(launcher, /ATHENA\.Node\.Launcher\.0_3/);
-  assert.match(launcher, /ATHENA\.Node\.OpenPanel\.0_3/);
+  assert.match(launcher, /ATHENA\.Node\.Launcher" \+ NamespaceSuffix/);
+  assert.match(launcher, /ATHENA\.Node\.OpenPanel" \+ NamespaceSuffix/);
+  assert.match(launcher, /return "\.0_3";/, "production keeps the fixed 0.3 namespace by default");
+  assert.match(launcher, /ATHENA_LAUNCHER_NAMESPACE/, "tests can isolate a side-by-side instance");
   assert.match(launcher, /openEvent\.Set\(\)/);
   assert.match(launcher, /FocusPanel/);
   assert.match(launcher, /panelOpening/);

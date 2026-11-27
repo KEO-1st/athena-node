@@ -116,7 +116,7 @@ test("the packaged launcher keeps one agent and one owner through launch, restar
     JSON.stringify({ name: "Lifecycle test", port, pairOpen: false, allowShell: false, allowInput: false, allowScreen: true, allowShutdown: false, openWindow: false })
   );
 
-  const env = { ...process.env, ATHENA_NODE_DIR: data, ATHENA_NO_BROWSER: "1" };
+  const env = { ...process.env, ATHENA_NODE_DIR: data, ATHENA_NO_BROWSER: "1", ATHENA_LAUNCHER_NAMESPACE: `test_${path.basename(base).replace(/[^a-zA-Z0-9]/g, "")}` };
   let launcher = spawn(exe, [], { cwd: folder, env, stdio: "ignore", windowsHide: true });
   const logFile = path.join(data, "launcher.log");
   const readLog = () => (fs.existsSync(logFile) ? fs.readFileSync(logFile, "utf8") : "");

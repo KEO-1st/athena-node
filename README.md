@@ -43,9 +43,11 @@ program folder. Installer upgrades and uninstalls preserve that directory.
   launcher and focuses/reopens the existing panel. The launcher owns exactly one
   panel, the agent holds an exclusive instance lock, and crash recovery is
   bounded to three retries with backoff instead of an endless restart loop.
-- **Adaptive desktop panel:** tabbed Overview / Machine / Permissions /
-  Diagnostics, fixed-height shell, no page scrolling, reduced-motion support and
-  a click-to-copy pairing code.
+- **Adaptive desktop panel:** tabbed Overview / Machine / Processes /
+  Permissions / Diagnostics, fixed-height shell, no page scrolling,
+  reduced-motion support and a click-to-copy pairing code. CPU and memory have
+  measured meters, and the Processes tab reads the live process table on demand
+  (it stops polling when the tab is left and never kills anything).
 - **Background notice:** the first hide action explains that closing the panel
   leaves the agent running in the tray.
 - **Safe first run:** new Nodes deny shell, keyboard/mouse input and remote
@@ -58,7 +60,11 @@ program folder. Installer upgrades and uninstalls preserve that directory.
   package has `ATHENA Node.exe`, a compiled `Uninstall ATHENA Node.exe`, and the
   agent files. PowerShell helpers are internal screen/input automation only.
 - **Real computer use:** list, focus and close visible windows; capture the
-  desktop; drive the mouse and keyboard; and open a URL or app. Browser control
+  desktop; drive the mouse and keyboard; and open a URL or app. A launch is
+  verified in three separate steps — a real process appeared, a window was
+  created, and that window is visible — so a stub like `calc.exe` that hands off
+  to the UWP Calculator is still recognised, and a process with no visible
+  window is reported as partial. Browser control
   uses a controlled Chrome/Edge/Brave profile over the DevTools protocol for
   navigation, DOM inspection, clicking, typing, keys and verified page changes.
   Closing a controlled browser uses CDP, so the person's own browser is left
@@ -97,6 +103,8 @@ npm start          # run the agent from source
 npm run check      # parse every JavaScript file
 npm test           # inventory, dependency, protocol and API tests
 npm run test:lifecycle  # compiled launcher: one agent, one panel, restart, quit
+                        # (uses ATHENA_LAUNCHER_NAMESPACE so a running Node
+                        #  does not look like a second test instance)
 npm run test:computer   # opt-in: real Chromium navigation/DOM/input/screenshot
                         # set ATHENA_TEST_COMPUTER=1 first
 npm run package    # portable zip + self-contained Setup.exe
